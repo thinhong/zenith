@@ -1,5 +1,5 @@
 import { smoothstep } from '@/state/altitude';
-import { ROADS, type RoadGraph } from '@/world/roads';
+import { nearestNode, ROADS, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 import { isBuildable, type TerrainSpec } from '@/world/terrain';
 
@@ -275,4 +275,28 @@ export function distanceToSegment(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** Lot ids grouped by use, so a person can pick somewhere to go. */
+export function lotsByUse(lots: readonly Lot[]): Record<LotUse, number[]> {
+  const byUse: Record<LotUse, number[]> = {
+    home: [],
+    work: [],
+    market: [],
+    temple: [],
+    park: [],
+    water: [],
+  };
+  for (const lot of lots) byUse[lot.use].push(lot.id);
+  return byUse;
+}
+
+/**
+ * The road node each lot is reached from: its door, as far as the walkers are
+ * concerned. Computed once at start-up.
+ */
+export function lotRoadNodes(lots: readonly Lot[], graph: RoadGraph): Int32Array {
+  const nodes = new Int32Array(lots.length).fill(-1);
+  for (const lot of lots) nodes[lot.id] = nearestNode(graph, lot.x, lot.z);
+  return nodes;
 }
