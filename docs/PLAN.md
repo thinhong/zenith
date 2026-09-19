@@ -227,7 +227,24 @@ A transition is a value from 0 to 1 over about 3 seconds. Old buildings scale th
 - **Light.** One directional sun plus a hemisphere or ambient light. Shadows only for the sun, only in roof and street bands, low resolution (1024). Turn shadows off above 300 m.
 - **Fog.** Always on. Fog colour equals sky horizon colour so the world dissolves at the edge instead of ending.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
-- **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for: yellow-orange glazed tile roofs on long low halls, walled courtyard compounds on a strong central axis, pale stone courtyards, and heavy tree cover between the walls. The source is the Imperial City in Hue rather than the Forbidden City in Beijing, since the land is Vietnamese: lower walls, brick-red and ochre rather than violet, and a moat around the citadel. Build it from the same boxes and cones as every other era; the look comes from the roof colour, the axis, and the density of trees, not from imported models.
+- **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for. Owner's decision, 20 Sep 2026: **the place is Vietnamese, the style and palette are the reference's.** So the layout comes from the Imperial City in Hue (a square citadel on the river, a moat, gates on each side, a walled inner enclosure, long low halls on a central axis, dense housing outside the wall), and the way it is drawn comes from the picture: flat cel shading, no textures, saturated colour, heavy tree canopy between the walls.
+
+  Palette read off the reference. The first four are sampled from the image; the rest are derived from them for shading and trim, so treat those as a starting point to tune by eye:
+
+  | Role | Hex | Source |
+  |---|---|---|
+  | Roof tile, lit | `#f6b06a` | sampled |
+  | Roof tile, in sun | `#e28f44` | sampled |
+  | Wall, violet | `#7d65a3` | sampled |
+  | Tree canopy | `#597c48` | sampled |
+  | Tree canopy, shaded | `#506f3f` | sampled |
+  | Roof tile, shaded | `#b96a2c` | derived |
+  | Wall, shaded | `#5d4a7c` | derived |
+  | Courtyard stone | `#cfc7b2` | derived |
+  | Minor roofs, grey tile | `#8b8f99` | derived |
+  | Timber and doors | `#8e3b2e` | derived |
+
+  The violet is the thing that makes the picture read, so do not quietly drift it towards brick red for realism. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -386,7 +403,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Hemisphere light, not ambient | tower sides need sky light or downtown reads as a black mass |
 | 2026-09-20 | Window lights keyed to world position, with instance attributes wrapped in `varying()` | keeps the pattern in the fragment stage and lines floors up across the city |
 | 2026-09-20 | Shadows below 300 m only, with 40 m hysteresis | the toggle rebuilds shaders, so it must not trip twice a second |
-| 2026-09-20 | Citadel era styled after the Imperial City in Hue | owner picked the reference in `docs/reference/citadel-style.png`; Hue rather than Beijing because the land is Vietnamese |
+| 2026-09-20 | Citadel era: Hue's layout, the reference image's style and palette | owner's call. Vietnamese place, so a square citadel with a moat and gates; but the flat cel shading, the orange-gold roofs against violet walls, and the heavy canopy come from `docs/reference/citadel-style.png` |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

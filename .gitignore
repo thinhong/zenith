@@ -3,3 +3,6 @@ dist/
 .vite/
 *.log
 .DS_Store
+
+# Cowork drops copies of files sent to the chat here; the originals live in docs/
+Claude outputs/
