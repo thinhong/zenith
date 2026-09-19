@@ -71,3 +71,19 @@ Start with M2 in `docs/PLAN.md`.
   but `NodeMaterial.setupLighting()` reads it on every node material.
 - A `fract(sin(dot(...)) * 43758)` hash speckles once world coordinates get to
   city scale. `world/buildings.ts` uses a small-constant hash instead.
+- An InstancedMesh whose matrices are rewritten every frame needs
+  `instanceMatrix.setUsage(DynamicDrawUsage)` (`markDynamic` in
+  `world/instanced.ts`). three uploads the buffer once otherwise.
+- Checking whether a crowd renders is harder than it sounds, and cost hours
+  here. A 1.7 m figure is five to eight pixels from the roof band, the streets
+  are dark, and a camera tilted 30 degrees over downtown sees mostly rooftops,
+  so "I cannot see anyone" proves nothing. What works: temporarily give the
+  figures a flat bright material, float them at y = 60 so no building can hide
+  them, and count matching pixels in the screenshot rather than looking. Keep
+  the probe inside the real draw path, or it tests the probe instead of the
+  code. Note also that anything above `AGENTS.figuresMaxM` hides the figures by
+  design, and that a point behind or above the camera is not a rendering bug.
+- The headless renderer runs at two or three frames a second, so the day clock
+  barely advances during a screenshot. To watch behaviour over a whole day, run
+  the systems in node with vite-node and print counts; only use screenshots to
+  check how something looks.

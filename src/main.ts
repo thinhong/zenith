@@ -17,7 +17,11 @@ async function main(): Promise<void> {
     startAltitudeM: settings.startAltitudeM ?? undefined,
     panLimitM: TERRAIN.cityRadiusM,
   });
-  const world = createWorld({ seed: settings.seed, fixedHour: settings.fixedHour });
+  const world = createWorld({
+    seed: settings.seed,
+    startHour: settings.startHour,
+    paused: settings.paused,
+  });
   const hud = createHud();
 
   window.addEventListener('keydown', (e) => {

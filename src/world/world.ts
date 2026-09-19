@@ -2,9 +2,18 @@ import { Color, DirectionalLight, Fog, HemisphereLight, SRGBColorSpace, Scene } 
 import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
+import { createPeople } from '@/agents/people';
 import { createBuildings } from '@/world/buildings';
 import { createGround } from '@/world/ground';
-import { avenueCorridors, buildBlocks, buildLots, type Lot } from '@/world/lots';
+import {
+  avenueCorridors,
+  buildBlocks,
+  buildLotIndex,
+  buildLots,
+  lotRoadNodes,
+  lotsByUse,
+  type Lot,
+} from '@/world/lots';
 import { createProps } from '@/world/props';
 import { createRoadMesh } from '@/world/road-mesh';
 import { buildRoadGraph, type RoadGraph } from '@/world/roads';
@@ -30,8 +39,10 @@ export interface World {
 
 export interface WorldOptions {
   seed: number;
-  /** Pin the clock instead of running it (debug, see state/settings.ts). */
-  fixedHour: number | null;
+  /** Start the day clock here instead of at the usual opening hour. */
+  startHour: number | null;
+  /** Freeze the clock (debug, see state/settings.ts). */
+  paused: boolean;
 }
 
 /**
@@ -47,11 +58,19 @@ const SUN_DISTANCE_M = 1400;
  */
 const SHADOW = { mapSize: 1024, extentM: 280, nearM: 200, farM: 2800 } as const;
 
-export function createWorld({ seed, fixedHour }: WorldOptions): World {
+/**
+ * How many people to place, the full pool from PLAN.md M2. Roughly a third are
+ * out of doors at any moment, which across a city 2.8 km wide is about as
+ * sparse as it can be and still read as inhabited.
+ */
+const POPULATION = 4000;
+
+export function createWorld({ seed, startHour, paused }: WorldOptions): World {
   const rng = mulberry32(seed);
   const terrain = buildTerrain(rng);
   const roads = buildRoadGraph(rng, terrain);
   const lots = buildLots(rng, terrain, buildBlocks(terrain), avenueCorridors(roads));
+  const byUse = lotsByUse(lots);
 
   const scene = new Scene();
   const background = new Color();
@@ -75,6 +94,15 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
   sun.shadow.intensity = 0.75;
   const buildings = createBuildings(lots);
   const props = createProps(rng, terrain, roads, lots);
+  const people = createPeople({
+    rng,
+    graph: roads,
+    lots,
+    byUse,
+    lotNodes: lotRoadNodes(lots, roads),
+    lotIndex: buildLotIndex(lots),
+    wanted: POPULATION,
+  });
   scene.add(
     ambient,
     sun,
@@ -83,6 +111,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
     createRoadMesh(roads),
     buildings.group,
     props.group,
+    people.group,
   );
   castAndReceive(scene);
 
@@ -90,8 +119,8 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
   // wobble at 300 m toggle it every frame.
   let shadowsOn = false;
 
-  const clock = createClock(fixedHour ?? undefined);
-  clock.paused = fixedHour !== null;
+  const clock = createClock(startHour ?? undefined);
+  clock.paused = paused;
 
   return {
     scene,
@@ -131,11 +160,15 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
       buildings.setDetail(detailFactor(DETAIL.windows, altitudeM));
       props.setNight(sky.nightFactor);
       props.setDetail(detailFactor(DETAIL.props, altitudeM));
+
+      people.update(dtS, clock.hourOfDay, view);
     },
     info: () =>
       `seed: ${seed}  water: ${terrain.water.kind}\n` +
       `roads: ${roads.edges.length}  buildings: ${buildings.count}\n` +
       `trees: ${props.treeCount}  lamps: ${props.lampCount}\n` +
+      `people: ${people.count}  out: ${people.stats.outside}  walking: ${people.stats.walking}\n` +
+      `agents: ${people.stats.updateMs.toFixed(2)} ms  drawn: ${people.stats.drawn}\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }

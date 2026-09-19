@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   avenueCorridors,
   buildBlocks,
+  buildLotIndex,
   buildLots,
   distanceToSegment,
   LOTS,
@@ -123,5 +124,52 @@ describe('styleFor', () => {
     expect(styleFor(120)).toBe('tower');
     expect(styleFor(30)).toBe('slab');
     expect(styleFor(9)).toBe('low');
+  });
+});
+
+describe('buildLotIndex', () => {
+  it('finds the truly nearest lot of a use', () => {
+    const { lots } = cityOf(1);
+    const index = buildLotIndex(lots);
+    const markets = lots.filter((l) => l.use === 'market');
+    expect(markets.length).toBeGreaterThan(10);
+    for (const probe of [
+      { x: 0, z: 0 },
+      { x: 600, z: -400 },
+      { x: -900, z: 700 },
+      { x: 1300, z: 0 },
+    ]) {
+      const found = index.nearest('market', probe.x, probe.z);
+      const lot = lots[found];
+      expect(lot).toBeDefined();
+      const best = Math.min(
+        ...markets.map((m) => Math.hypot(m.x - probe.x, m.z - probe.z)),
+      );
+      expect(Math.hypot((lot?.x ?? 0) - probe.x, (lot?.z ?? 0) - probe.z)).toBeCloseTo(best, 3);
+    }
+  });
+
+  it('keeps everyday errands short enough to finish', () => {
+    const { lots } = cityOf(4);
+    const index = buildLotIndex(lots);
+    const homes = lots.filter((l) => l.use === 'home');
+    let worst = 0;
+    let total = 0;
+    for (const home of homes) {
+      const id = index.nearest('market', home.x, home.z);
+      const market = lots[id];
+      if (!market) continue;
+      const distance = Math.hypot(market.x - home.x, market.z - home.z);
+      worst = Math.max(worst, distance);
+      total += distance;
+    }
+    // at 1.4 m/s a 150 m walk takes under two minutes of real time
+    expect(total / homes.length).toBeLessThan(150);
+    expect(worst).toBeLessThan(600);
+  });
+
+  it('returns -1 when nothing of that use exists', () => {
+    const { lots } = cityOf(2);
+    expect(buildLotIndex(lots).nearest('water', 0, 0)).toBe(-1);
   });
 });

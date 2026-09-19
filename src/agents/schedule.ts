@@ -37,8 +37,8 @@ const DAY: Readonly<Record<Role, readonly Slot[]>> = {
   office: [
     { fromHour: 0, use: 'home' },
     { fromHour: 8, use: 'work' },
+    // One evening stop, not two: a slot has to be long enough to walk there in.
     { fromHour: 17.5, use: 'market' },
-    { fromHour: 18.75, use: 'park' },
     { fromHour: 20, use: 'home' },
   ],
   shop: [

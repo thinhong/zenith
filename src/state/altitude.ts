@@ -75,3 +75,24 @@ export function fogRange(altitudeM: number): { nearM: number; farM: number } {
     farM: altitudeM * FOG.farScale + FOG.farOffsetM,
   };
 }
+
+/**
+ * Where people and vehicles appear and what they turn into. Same rule as the
+ * rest of this file: no metre threshold for agents lives anywhere else.
+ */
+export const AGENTS = {
+  /** Below this, people are walking figures. Above it they are dots. */
+  figuresMaxM: 320,
+  /** Above this, people are not drawn at all. */
+  peopleDotsMaxM: 1250,
+  /** Below this, vehicles are boxes. Above it they are dots. */
+  vehiclesMaxM: 1250,
+  /** Above this, vehicles are not drawn at all. */
+  vehicleDotsMaxM: 3500,
+  /** Agents this close to the look-at point update every frame. */
+  nearM: 400,
+  /** How often the rest update. One in this many frames. */
+  farStride: 8,
+  /** Figures are only drawn within this of the look-at point. */
+  drawRadiusM: 700,
+} as const;

@@ -4,8 +4,16 @@
  * no three.js, no DOM.
  */
 
-/** One full day per 6 real minutes (PLAN.md 4.5). */
-export const DAY_LENGTH_S = 360;
+/**
+ * One full day per 15 real minutes (PLAN.md 4.5, revised 20 Sep 2026).
+ *
+ * The plan said 6 minutes. At that rate a schedule slot lasts 15 to 90 seconds
+ * while a walk of a few blocks takes two or three minutes at a real 1.4 m/s, so
+ * every trip was overtaken by the next decision and nobody ever arrived
+ * anywhere: the whole population walked, permanently. Fifteen minutes lets the
+ * morning and evening commutes finish, which is what makes the waves readable.
+ */
+export const DAY_LENGTH_S = 900;
 
 /**
  * Zenith opens in the last of the light (PLAN.md 2): the sun is still just

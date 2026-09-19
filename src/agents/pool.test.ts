@@ -11,7 +11,7 @@ import {
   STATE,
 } from './pool';
 import { ROLES } from './schedule';
-import { avenueCorridors, buildBlocks, buildLots, lotsByUse } from '@/world/lots';
+import { avenueCorridors, buildBlocks, buildLotIndex, buildLots, lotsByUse } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
 import { buildTerrain } from '@/world/terrain';
@@ -20,7 +20,7 @@ function city(seed: number) {
   const terrain = buildTerrain(mulberry32(seed));
   const graph = buildRoadGraph(mulberry32(seed), terrain);
   const lots = buildLots(mulberry32(seed), terrain, buildBlocks(terrain), avenueCorridors(graph));
-  return { terrain, graph, lots, byUse: lotsByUse(lots) };
+  return { terrain, graph, lots, byUse: lotsByUse(lots), lotIndex: buildLotIndex(lots) };
 }
 
 describe('createAgentPool', () => {
@@ -34,9 +34,9 @@ describe('createAgentPool', () => {
 
 describe('populate', () => {
   it('gives everyone a home, a workplace and a role', () => {
-    const { lots, byUse } = city(1);
+    const { lots, byUse, lotIndex } = city(1);
     const pool = createAgentPool(2000);
-    const placed = populate(mulberry32(1), pool, { lots, byUse, clothesCount: 6, wanted: 2000 });
+    const placed = populate(mulberry32(1), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 2000 });
 
     expect(placed).toBeGreaterThan(500);
     expect(pool.count).toBe(placed);
@@ -52,9 +52,9 @@ describe('populate', () => {
   });
 
   it('stands each person in their own doorway', () => {
-    const { lots, byUse } = city(2);
+    const { lots, byUse, lotIndex } = city(2);
     const pool = createAgentPool(300);
-    const placed = populate(mulberry32(2), pool, { lots, byUse, clothesCount: 6, wanted: 300 });
+    const placed = populate(mulberry32(2), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 300 });
     for (let i = 0; i < placed; i++) {
       const home = lots[pool.homeLot[i] ?? 0];
       expect(home).toBeDefined();
@@ -66,9 +66,9 @@ describe('populate', () => {
   });
 
   it('spreads the schedule offsets so the city does not move as one', () => {
-    const { lots, byUse } = city(3);
+    const { lots, byUse, lotIndex } = city(3);
     const pool = createAgentPool(500);
-    const placed = populate(mulberry32(3), pool, { lots, byUse, clothesCount: 6, wanted: 500 });
+    const placed = populate(mulberry32(3), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 500 });
     const offsets = Array.from(pool.hourOffset.subarray(0, placed));
     expect(Math.min(...offsets)).toBeLessThan(-0.4);
     expect(Math.max(...offsets)).toBeGreaterThan(0.4);
@@ -77,7 +77,10 @@ describe('populate', () => {
   it('refuses to place anyone with nowhere to live', () => {
     const pool = createAgentPool(10);
     const empty = { home: [], work: [], market: [], temple: [], park: [], water: [] };
-    expect(populate(mulberry32(1), pool, { lots: [], byUse: empty, clothesCount: 4, wanted: 10 })).toBe(0);
+    const lotIndex = buildLotIndex([]);
+    expect(
+      populate(mulberry32(1), pool, { lots: [], byUse: empty, lotIndex, clothesCount: 4, wanted: 10 }),
+    ).toBe(0);
   });
 });
 

@@ -300,3 +300,64 @@ export function lotRoadNodes(lots: readonly Lot[], graph: RoadGraph): Int32Array
   for (const lot of lots) nodes[lot.id] = nearestNode(graph, lot.x, lot.z);
   return nodes;
 }
+
+/** Cell size of the lookup grid, in metres. */
+export const LOT_INDEX_CELL_M = 200;
+
+export interface LotIndex {
+  /** The nearest lot of that use to a point, or -1 if there are none. */
+  nearest: (use: LotUse, x: number, z: number) => number;
+}
+
+/**
+ * A coarse grid for "where is the nearest market from here". People have to be
+ * able to reach somewhere inside the slot of the day that sent them: a walk at
+ * 1.4 m/s and a day of 15 minutes leave only a couple of hundred metres, so the
+ * choice has to be the nearest one rather than a random one (PLAN.md 4.5).
+ */
+export function buildLotIndex(lots: readonly Lot[], cellM: number = LOT_INDEX_CELL_M): LotIndex {
+  const buckets = new Map<string, number[]>();
+  for (const lot of lots) {
+    const key = cellKey(lot.use, Math.floor(lot.x / cellM), Math.floor(lot.z / cellM));
+    const list = buckets.get(key);
+    if (list) list.push(lot.id);
+    else buckets.set(key, [lot.id]);
+  }
+
+  return {
+    nearest: (use, x, z) => {
+      const cx = Math.floor(x / cellM);
+      const cz = Math.floor(z / cellM);
+      let best = -1;
+      let bestDistance = Infinity;
+      let foundRing = -1;
+      for (let ring = 0; ring <= 24; ring++) {
+        // Stop one ring past the first hit: a lot just over a cell edge can
+        // still be nearer than the one that was found first.
+        if (foundRing >= 0 && ring > foundRing + 1) break;
+        for (let dx = -ring; dx <= ring; dx++) {
+          for (let dz = -ring; dz <= ring; dz++) {
+            if (ring > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+            const list = buckets.get(cellKey(use, cx + dx, cz + dz));
+            if (!list) continue;
+            for (const id of list) {
+              const lot = lots[id];
+              if (!lot) continue;
+              const distance = (lot.x - x) ** 2 + (lot.z - z) ** 2;
+              if (distance < bestDistance) {
+                bestDistance = distance;
+                best = id;
+                if (foundRing < 0) foundRing = ring;
+              }
+            }
+          }
+        }
+      }
+      return best;
+    },
+  };
+}
+
+function cellKey(use: LotUse, cx: number, cz: number): string {
+  return `${use}:${cx},${cz}`;
+}

@@ -2,14 +2,16 @@ import { ALTITUDE } from '@/state/altitude';
 
 /**
  * Settings read once at start-up. `seed` is the shareable one (PLAN.md M1
- * acceptance); `hour` and `alt` exist only so the smoke test and a reviewer can
- * screenshot a fixed moment (PLAN.md 8).
+ * acceptance); the rest exist so a reviewer or a headless render can set up a
+ * particular moment (PLAN.md 8).
  */
 export interface Settings {
   seed: number;
   reducedMotion: boolean;
-  /** Pin the day clock to this hour. `null` runs the clock normally. */
-  fixedHour: number | null;
+  /** Start the day clock here. `null` uses the usual opening hour. */
+  startHour: number | null;
+  /** Freeze the clock. Only useful together with `startHour`. */
+  paused: boolean;
   /** Open at this altitude in metres. `null` uses ALTITUDE.start. */
   startAltitudeM: number | null;
 }
@@ -19,7 +21,8 @@ export function parseSettings(search: string, reducedMotion: boolean): Settings 
   return {
     seed: finiteOr(q.get('seed'), 1),
     reducedMotion,
-    fixedHour: clampOrNull(finiteOrNull(q.get('hour')), 0, 24),
+    startHour: clampOrNull(finiteOrNull(q.get('hour')), 0, 24),
+    paused: q.get('pause') === '1',
     startAltitudeM: clampOrNull(finiteOrNull(q.get('alt')), ALTITUDE.min, ALTITUDE.max),
   };
 }

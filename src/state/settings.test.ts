@@ -5,7 +5,13 @@ import { parseSettings } from './settings';
 describe('parseSettings', () => {
   it('defaults to seed 1 and no overrides', () => {
     const s = parseSettings('', false);
-    expect(s).toEqual({ seed: 1, reducedMotion: false, fixedHour: null, startAltitudeM: null });
+    expect(s).toEqual({
+      seed: 1,
+      reducedMotion: false,
+      startHour: null,
+      paused: false,
+      startAltitudeM: null,
+    });
   });
 
   it('reads the seed so a city can be shared', () => {
@@ -17,9 +23,14 @@ describe('parseSettings', () => {
   });
 
   it('clamps the debug overrides into range', () => {
-    expect(parseSettings('?hour=99', false).fixedHour).toBe(24);
+    expect(parseSettings('?hour=99', false).startHour).toBe(24);
     expect(parseSettings('?alt=0', false).startAltitudeM).toBe(ALTITUDE.min);
     expect(parseSettings('?alt=99999', false).startAltitudeM).toBe(ALTITUDE.max);
+  });
+
+  it('only freezes the clock when asked', () => {
+    expect(parseSettings('?hour=9', false).paused).toBe(false);
+    expect(parseSettings('?hour=9&pause=1', false).paused).toBe(true);
   });
 
   it('passes reduced motion through', () => {

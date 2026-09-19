@@ -5,7 +5,7 @@ import {
   roleIndex,
   type Destination,
 } from '@/agents/schedule';
-import type { Lot, LotUse } from '@/world/lots';
+import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import { range, type Rng } from '@/world/seed';
 
 /**
@@ -92,6 +92,7 @@ export function createAgentPool(capacity: number): AgentPool {
 export interface PopulateOptions {
   lots: readonly Lot[];
   byUse: Record<LotUse, number[]>;
+  lotIndex: LotIndex;
   clothesCount: number;
   /** How many people to place, before the home-lot limit is applied. */
   wanted: number;
@@ -103,17 +104,20 @@ export interface PopulateOptions {
  */
 export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): number {
   const homes = options.byUse.home;
-  const works = options.byUse.work;
-  if (homes.length === 0 || works.length === 0) return 0;
+  if (homes.length === 0 || options.byUse.work.length === 0) return 0;
 
   const wanted = Math.min(options.wanted, pool.capacity, homes.length * POOL.perHomeLot);
   let placed = 0;
   for (let i = 0; i < wanted; i++) {
     const homeLot = homes[Math.floor(rng() * homes.length)];
-    const workLot = works[Math.floor(rng() * works.length)];
-    if (homeLot === undefined || workLot === undefined) continue;
+    if (homeLot === undefined) continue;
     const lot = options.lots[homeLot];
     if (!lot) continue;
+    // The nearest workplace, not a random one. A day lasts fifteen real
+    // minutes and people walk at 1.4 m/s, so a commute across the city would
+    // never finish (PLAN.md 4.5).
+    const workLot = options.lotIndex.nearest('work', lot.x, lot.z);
+    if (workLot < 0) continue;
 
     pool.homeLot[placed] = homeLot;
     pool.workLot[placed] = workLot;
