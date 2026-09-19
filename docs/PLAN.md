@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v2, 20 September 2026. M0 and M1 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v3, 20 September 2026. M0, M1 and M2 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -114,6 +114,7 @@ src/
     lots.ts                pure: city blocks split into lots; each lot has a use (done)
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
     props.ts               three.js: trees and street lamps (done); boats in M5
+    instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
       index.ts             Era interface + registry
       fields.ts            era 1: rice fields, huts, dirt paths, ox carts (~1500)
@@ -122,10 +123,11 @@ src/
       modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default)
       after.ts             era 5: overgrown ruins, birds, few people (~2300)
   agents/
-    pool.ts                typed-array pool: position, heading, speed, state, lot ids
-    people.ts              PeopleSystem: schedules, walking, instanced figures
-    traffic.ts             TrafficSystem: vehicles on road graph, dots when high
-    schedule.ts            pure: given clock hour + role -> where an agent wants to be
+    pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
+    schedule.ts            pure: given clock hour + role -> where an agent wants to be (done)
+    paths.ts               pure: A* route -> waypoints, corners smoothed, pavement baked in (done)
+    people.ts              three.js: walking, arriving, instanced figures and points (done)
+    traffic.ts             three.js: vehicles on the road graph, boxes and points (done)
   thoughts/
     thoughts.ts            ThoughtSystem: picks people, projects to screen, DOM labels
     content.ts             thought texts by era and by place (data only)
@@ -210,7 +212,8 @@ Transitions use `smoothstep` over a 20 percent window around each boundary so no
 
 ### 4.5 Time model
 
-- `clock.hour` runs from 0 to 24 and wraps. Default speed: one day per 6 real minutes. Pause with the space key.
+- `clock.hour` runs from 0 to 24 and wraps. Default speed: **one day per 15 real minutes** (revised from 6 on 20 Sep 2026). Pause with the space key.
+- Why 15 and not 6: people walk at a real 1.2 to 1.6 m/s (section 5), and at six minutes a day a schedule slot lasts 15 to 90 seconds while a walk of a few blocks takes two or three minutes. Every trip was overtaken by the next decision, so the whole population walked permanently and nobody ever arrived anywhere. Fifteen minutes lets the morning and evening commutes finish, which is what makes the waves readable. The other half of the same fix is that a person goes to the *nearest* market or park, not a random one.
 - Sun direction, sky colour, fog colour, and window-light intensity are pure functions of `clock.hour` (in `world/sky.ts` or inside `terrain.ts`).
 - Agent schedules read `clock.hour`: home at night, commute in the morning, work by day, market or park in the evening. Each role has a small offset so not everyone moves at once.
 - Era time-lapse ("century in a minute") is separate: it steps through eras 1 to 5, spending 12 seconds on each, then stops on era 5. It does not change the day clock.
@@ -227,6 +230,7 @@ A transition is a value from 0 to 1 over about 3 seconds. Old buildings scale th
 - **Light.** One directional sun plus a hemisphere or ambient light. Shadows only for the sun, only in roof and street bands, low resolution (1024). Turn shadows off above 300 m.
 - **Fog.** Always on. Fog colour equals sky horizon colour so the world dissolves at the edge instead of ending.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
+- **Where people are visible.** Home and work take a person indoors and they stop being drawn; markets, parks and temples keep them outside, standing or sitting. M2 task 5 said workers should stand in rows at their desks, which cannot be seen through a solid box, so that part was dropped. Clothing is deliberately light: a 1.7 m figure is five to eight pixels from the roof band and the streets are dark, so mid-tones vanish.
 - **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for. Owner's decision, 20 Sep 2026: **the place is Vietnamese, the style and palette are the reference's.** So the layout comes from the Imperial City in Hue (a square citadel on the river, a moat, gates on each side, a walled inner enclosure, long low halls on a central axis, dense housing outside the wall), and the way it is drawn comes from the picture: flat cel shading, no textures, saturated colour, heavy tree canopy between the walls.
 
   Palette read off the reference. The first four are sampled from the image; the rest are derived from them for shading and trim, so treat those as a starting point to tune by eye:
@@ -288,9 +292,20 @@ Acceptance:
 - Draw calls under 60. 60 fps desktop, over 30 fps on a mid-range phone at 900 m.
 - Regenerating with a different seed (add `?seed=123` URL param) gives a different but equally good city. Same seed gives the same city.
 
-### M2. People and traffic
+### M2. People and traffic (done, 20 Sep 2026)
 
 Goal: the city is inhabited. Tiny figures walk between home, work, market, park; vehicles drive on roads. Both disappear at the right altitudes.
+
+Closed with 4000 people and 800 vehicles, 17 draw calls, 0.5 to 0.6 ms of agent update per frame against a 4 ms budget, 266 kB gzipped, 93 unit tests. Screenshots in `docs/screenshots/`: `m2.png` (morning, 650 m), `m2-evening.png` (380 m). Not yet checked on a real phone, same open item as M1.
+
+A simulated day, counted in node rather than by eye: everyone indoors at 05:00; 1000 walking by 07:00; a settled midday with about 450 standing in markets; a second wave from 18:00; indoors again by 01:00.
+
+What changed beyond the task list:
+
+- **The day is now 15 real minutes** and destinations are the nearest of their kind. See section 4.5 for why; without both, nobody ever arrived anywhere.
+- **Vehicles wander** rather than route. From above, a car taking a random turn at each junction is indistinguishable from one with somewhere to be, and it costs no pathfinding. How many are on the road varies with the hour.
+- **Pavement offsets are baked into the waypoints** when a route is built, using the mean direction either side of a junction, so a walker cuts the corner instead of stepping sideways across the street.
+- **Two thirds of vehicles are scooters** (task 6, taken up rather than left optional).
 
 Tasks:
 1. `agents/pool.ts`: structure-of-arrays pool with capacity 4000 people and 800 vehicles. No per-agent objects.
@@ -403,6 +418,10 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Hemisphere light, not ambient | tower sides need sky light or downtown reads as a black mass |
 | 2026-09-20 | Window lights keyed to world position, with instance attributes wrapped in `varying()` | keeps the pattern in the fragment stage and lines floors up across the city |
 | 2026-09-20 | Shadows below 300 m only, with 40 m hysteresis | the toggle rebuilds shaders, so it must not trip twice a second |
+| 2026-09-20 | A day lasts 15 real minutes, not 6 | at 6 a schedule slot was shorter than the walk it started, so nobody ever arrived anywhere |
+| 2026-09-20 | People go to the nearest market, park or temple, and work near home | same reason: an errand has to fit inside the slot of the day that sent them out |
+| 2026-09-20 | Vehicles take a random turn at junctions instead of routing | indistinguishable from above, and it costs no pathfinding |
+| 2026-09-20 | Home and work take people indoors and out of sight | a figure at a desk inside a solid box cannot be seen; markets and parks keep people outdoors instead |
 | 2026-09-20 | Citadel era: Hue's layout, the reference image's style and palette | owner's call. Vietnamese place, so a square citadel with a moat and gates; but the flat cel shading, the orange-gold roofs against violet walls, and the heavy canopy come from `docs/reference/citadel-style.png` |
 
 ## 10. Open questions (decide before the milestone that needs them)
