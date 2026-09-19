@@ -8,7 +8,7 @@
 export const DAY_LENGTH_S = 360;
 
 /** Zenith opens near dusk (PLAN.md 2), so the first frame has lights coming on. */
-export const START_HOUR = 18;
+export const START_HOUR = 18.2;
 
 export interface Clock {
   hourOfDay: number;

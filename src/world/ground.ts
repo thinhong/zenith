@@ -21,7 +21,7 @@ import { centrelinePoint, TERRAIN, type MountainSpec, type TerrainSpec } from '@
 
 /** Modern-era land colours. These move into eras/modern.ts in M5. */
 export const GROUND_PALETTE = {
-  land: 0x414b38,
+  land: 0x4a5540,
   water: 0x1b2f42,
   mountainLow: 0x3b4536,
   mountainHigh: 0x4a5244,

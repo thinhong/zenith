@@ -1,7 +1,9 @@
-import { AmbientLight, Color, DirectionalLight, Fog, SRGBColorSpace, Scene } from 'three';
-import { fogRange } from '@/state/altitude';
+import { Color, DirectionalLight, Fog, HemisphereLight, SRGBColorSpace, Scene } from 'three';
+import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
+import { createBuildings } from '@/world/buildings';
 import { createGround } from '@/world/ground';
+import { avenueCorridors, buildBlocks, buildLots, type Lot } from '@/world/lots';
 import { createRoadMesh } from '@/world/road-mesh';
 import { buildRoadGraph, type RoadGraph } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
@@ -18,6 +20,7 @@ export interface World {
   clock: Clock;
   terrain: TerrainSpec;
   roads: RoadGraph;
+  lots: readonly Lot[];
   update: (dtS: number, elapsedS: number, altitudeM: number) => void;
   /** One line for the debug HUD. */
   info: () => string;
@@ -36,6 +39,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
   const rng = mulberry32(seed);
   const terrain = buildTerrain(rng);
   const roads = buildRoadGraph(rng, terrain);
+  const lots = buildLots(rng, terrain, buildBlocks(terrain), avenueCorridors(roads));
 
   const scene = new Scene();
   const background = new Color();
@@ -43,9 +47,12 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
   scene.background = background;
   scene.fog = fog;
 
-  const ambient = new AmbientLight(0xffffff, 0.6);
+  // A hemisphere light rather than a flat ambient: the vertical faces of a
+  // tower need sky light from above, or a city at noon reads as a black mass.
+  const ambient = new HemisphereLight(0xffffff, 0xffffff, 0.6);
   const sun = new DirectionalLight(0xffffff, 1.2);
-  scene.add(ambient, sun, createGround(terrain), createRoadMesh(roads));
+  const buildings = createBuildings(lots);
+  scene.add(ambient, sun, createGround(terrain), createRoadMesh(roads), buildings.group);
 
   const clock = createClock(fixedHour ?? undefined);
   clock.paused = fixedHour !== null;
@@ -55,6 +62,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
     clock,
     terrain,
     roads,
+    lots,
     update: (dtS, _elapsedS, altitudeM) => {
       advanceClock(clock, dtS);
       const sky = skyAt(clock.hourOfDay);
@@ -73,10 +81,15 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
       applyRgb(sun.color, sky.sunColor);
       sun.intensity = sky.sunIntensity;
       applyRgb(ambient.color, sky.ambientColor);
+      applyRgb(ambient.groundColor, sky.bounceColor);
       ambient.intensity = sky.ambientIntensity;
+
+      buildings.setNight(sky.nightFactor);
+      buildings.setDetail(detailFactor(DETAIL.windows, altitudeM));
     },
     info: () =>
-      `seed: ${seed}  water: ${terrain.water.kind}  roads: ${roads.edges.length}\n` +
+      `seed: ${seed}  water: ${terrain.water.kind}\n` +
+      `roads: ${roads.edges.length}  buildings: ${buildings.count}\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }

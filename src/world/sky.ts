@@ -27,6 +27,8 @@ export interface SkyState {
   sunColor: Rgb;
   sunIntensity: number;
   ambientColor: Rgb;
+  /** Light bounced back up off the land. The lower half of the hemisphere light. */
+  bounceColor: Rgb;
   ambientIntensity: number;
   /** 0 in daylight, 1 at night. Drives window lights and street lamps. */
   nightFactor: number;
@@ -39,6 +41,7 @@ interface SkyKey {
   sun: number;
   sunI: number;
   amb: number;
+  bounce: number;
   ambI: number;
 }
 
@@ -47,16 +50,16 @@ interface SkyKey {
  * last key repeats the first at hour 24 so interpolation never has to wrap.
  */
 const KEYS: readonly SkyKey[] = [
-  { hour: 0.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.1, amb: 0x27354c, ambI: 0.3 },
-  { hour: 4.5, sky: 0x0a1120, fog: 0x14203a, sun: 0x8fa8cc, sunI: 0.12, amb: 0x2b3a52, ambI: 0.32 },
-  { hour: 6.5, sky: 0x44557a, fog: 0xc98a68, sun: 0xffc08c, sunI: 0.6, amb: 0x5a6d8f, ambI: 0.5 },
-  { hour: 9.0, sky: 0x6d94c8, fog: 0xa8bdd6, sun: 0xfff0d6, sunI: 1.25, amb: 0x86a0c0, ambI: 0.6 },
-  { hour: 12.0, sky: 0x7fa8d8, fog: 0xbccfe4, sun: 0xfff6e2, sunI: 1.45, amb: 0x90a6c2, ambI: 0.65 },
-  { hour: 15.5, sky: 0x76a0d0, fog: 0xc3ccd8, sun: 0xfff0d0, sunI: 1.25, amb: 0x8ca2be, ambI: 0.6 },
-  { hour: 18.0, sky: 0x4a5678, fog: 0xd9936a, sun: 0xff9f60, sunI: 0.8, amb: 0x66738f, ambI: 0.48 },
-  { hour: 19.5, sky: 0x1e2a44, fog: 0x6e4a52, sun: 0xc06a58, sunI: 0.28, amb: 0x3c4a68, ambI: 0.36 },
-  { hour: 21.0, sky: 0x090e1a, fog: 0x121a2a, sun: 0x8fa8cc, sunI: 0.12, amb: 0x2a3850, ambI: 0.31 },
-  { hour: 24.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.1, amb: 0x27354c, ambI: 0.3 },
+  { hour: 0.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.14, amb: 0x3d4a66, bounce: 0x2b2420, ambI: 0.62 },
+  { hour: 4.5, sky: 0x0a1120, fog: 0x14203a, sun: 0x8fa8cc, sunI: 0.16, amb: 0x415070, bounce: 0x2b2420, ambI: 0.64 },
+  { hour: 6.5, sky: 0x44557a, fog: 0xc98a68, sun: 0xffc08c, sunI: 0.6, amb: 0x7b8da8, bounce: 0x4a4436, ambI: 0.9 },
+  { hour: 9.0, sky: 0x6d94c8, fog: 0xa8bdd6, sun: 0xfff0d6, sunI: 1.2, amb: 0xa8bdd4, bounce: 0x63614f, ambI: 1.0 },
+  { hour: 12.0, sky: 0x7fa8d8, fog: 0xbccfe4, sun: 0xfff6e2, sunI: 1.35, amb: 0xb0c2d6, bounce: 0x6b6a58, ambI: 1.05 },
+  { hour: 15.5, sky: 0x76a0d0, fog: 0xc3ccd8, sun: 0xfff0d0, sunI: 1.2, amb: 0xacbed2, bounce: 0x676554, ambI: 1.0 },
+  { hour: 18.0, sky: 0x4a5678, fog: 0xd9936a, sun: 0xff9f60, sunI: 0.85, amb: 0x93a0bb, bounce: 0x64503f, ambI: 0.95 },
+  { hour: 19.5, sky: 0x1e2a44, fog: 0x6e4a52, sun: 0xc06a58, sunI: 0.32, amb: 0x5d6b8c, bounce: 0x3b2c2b, ambI: 0.76 },
+  { hour: 21.0, sky: 0x090e1a, fog: 0x121a2a, sun: 0x8fa8cc, sunI: 0.16, amb: 0x42506e, bounce: 0x2d2421, ambI: 0.64 },
+  { hour: 24.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.14, amb: 0x3d4a66, bounce: 0x2b2420, ambI: 0.62 },
 ];
 
 export function skyAt(hourOfDay: number): SkyState {
@@ -69,6 +72,7 @@ export function skyAt(hourOfDay: number): SkyState {
     sunColor: mixHex(a.sun, b.sun, t),
     sunIntensity: lerp(a.sunI, b.sunI, t),
     ambientColor: mixHex(a.amb, b.amb, t),
+    bounceColor: mixHex(a.bounce, b.bounce, t),
     ambientIntensity: lerp(a.ambI, b.ambI, t),
     nightFactor: nightFactorAt(hour),
   };
