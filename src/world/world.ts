@@ -3,6 +3,7 @@ import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
 import { createPeople } from '@/agents/people';
+import { createTraffic } from '@/agents/traffic';
 import { createBuildings } from '@/world/buildings';
 import { createGround } from '@/world/ground';
 import {
@@ -65,6 +66,9 @@ const SHADOW = { mapSize: 1024, extentM: 280, nearM: 200, farM: 2800 } as const;
  */
 const POPULATION = 4000;
 
+/** Vehicles on the road at rush hour. Fewer at other times (agents/traffic.ts). */
+const FLEET = 800;
+
 export function createWorld({ seed, startHour, paused }: WorldOptions): World {
   const rng = mulberry32(seed);
   const terrain = buildTerrain(rng);
@@ -94,6 +98,7 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
   sun.shadow.intensity = 0.75;
   const buildings = createBuildings(lots);
   const props = createProps(rng, terrain, roads, lots);
+  const traffic = createTraffic({ rng, graph: roads, wanted: FLEET });
   const people = createPeople({
     rng,
     graph: roads,
@@ -112,6 +117,7 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
     buildings.group,
     props.group,
     people.group,
+    traffic.group,
   );
   castAndReceive(scene);
 
@@ -162,13 +168,15 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
       props.setDetail(detailFactor(DETAIL.props, altitudeM));
 
       people.update(dtS, clock.hourOfDay, view);
+      traffic.update(dtS, clock.hourOfDay, view);
     },
     info: () =>
       `seed: ${seed}  water: ${terrain.water.kind}\n` +
       `roads: ${roads.edges.length}  buildings: ${buildings.count}\n` +
       `trees: ${props.treeCount}  lamps: ${props.lampCount}\n` +
       `people: ${people.count}  out: ${people.stats.outside}  walking: ${people.stats.walking}\n` +
-      `agents: ${people.stats.updateMs.toFixed(2)} ms  drawn: ${people.stats.drawn}\n` +
+      `vehicles: ${traffic.stats.active}\n` +
+      `agents: ${(people.stats.updateMs + traffic.stats.updateMs).toFixed(2)} ms  drawn: ${people.stats.drawn}\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }
