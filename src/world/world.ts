@@ -1,78 +1,87 @@
-import {
-  AmbientLight,
-  BoxGeometry,
-  Color,
-  DirectionalLight,
-  Fog,
-  InstancedMesh,
-  Matrix4,
-  Mesh,
-  MeshLambertMaterial,
-  PlaneGeometry,
-  Scene,
-} from 'three';
-import { mulberry32, range } from '@/world/seed';
+import { AmbientLight, Color, DirectionalLight, Fog, SRGBColorSpace, Scene } from 'three';
+import { fogRange } from '@/state/altitude';
+import { advanceClock, createClock, type Clock } from '@/state/clock';
+import { createGround } from '@/world/ground';
+import { mulberry32 } from '@/world/seed';
+import { skyAt, type Rgb } from '@/world/sky';
+import { buildTerrain, type TerrainSpec } from '@/world/terrain';
 
+/**
+ * Assembles one world from a seed and keeps it in step with altitude and the
+ * day clock. Systems never talk to each other; they all read the same two
+ * inputs (PLAN.md 4.1).
+ */
 export interface World {
   scene: Scene;
-  update: (dt: number, elapsed: number, altitude: number) => void;
+  clock: Clock;
+  terrain: TerrainSpec;
+  update: (dtS: number, elapsedS: number, altitudeM: number) => void;
+  /** One line for the debug HUD. */
+  info: () => string;
 }
 
 export interface WorldOptions {
   seed: number;
+  /** Pin the clock instead of running it (debug, see state/settings.ts). */
+  fixedHour: number | null;
 }
 
-/**
- * Placeholder world: a flat ground and a grid of low-poly blocks so the camera
- * has something to look down on. Milestone 1 replaces this with the real
- * procedural city (see docs/PLAN.md).
- */
-export function createWorld({ seed }: WorldOptions): World {
+/** The sun is directional, so this only has to sit outside the world. */
+const SUN_DISTANCE_M = 6000;
+
+export function createWorld({ seed, fixedHour }: WorldOptions): World {
   const rng = mulberry32(seed);
+  const terrain = buildTerrain(rng);
+
   const scene = new Scene();
-  scene.background = new Color('#0b0f14');
-  scene.fog = new Fog('#0b0f14', 1500, 6000);
+  const background = new Color();
+  const fog = new Fog(background, 1000, 6000);
+  scene.background = background;
+  scene.fog = fog;
 
-  scene.add(new AmbientLight('#8fa3bf', 0.6));
-  const sun = new DirectionalLight('#fff2dc', 1.4);
-  sun.position.set(600, 1000, 400);
-  scene.add(sun);
+  const ambient = new AmbientLight(0xffffff, 0.6);
+  const sun = new DirectionalLight(0xffffff, 1.2);
+  scene.add(ambient, sun, createGround(terrain));
 
-  const ground = new Mesh(
-    new PlaneGeometry(4000, 4000),
-    new MeshLambertMaterial({ color: '#1c2430' }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-
-  // One InstancedMesh for all buildings: one draw call regardless of count.
-  const cols = 40;
-  const rows = 40;
-  const spacing = 40;
-  const count = cols * rows;
-  const box = new BoxGeometry(1, 1, 1);
-  box.translate(0, 0.5, 0); // pivot at the base so scaling in y grows upward
-  const buildings = new InstancedMesh(box, new MeshLambertMaterial({ color: '#4a5a70' }), count);
-  const m = new Matrix4();
-  let i = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x = (c - cols / 2) * spacing + range(rng, -6, 6);
-      const z = (r - rows / 2) * spacing + range(rng, -6, 6);
-      const w = range(rng, 14, 26);
-      const d = range(rng, 14, 26);
-      const h = range(rng, 8, 120);
-      m.makeScale(w, h, d).setPosition(x, 0, z);
-      buildings.setMatrixAt(i++, m);
-    }
-  }
-  buildings.instanceMatrix.needsUpdate = true;
-  scene.add(buildings);
+  const clock = createClock(fixedHour ?? undefined);
+  clock.paused = fixedHour !== null;
 
   return {
     scene,
-    update: () => {
-      /* nothing moves yet; see PLAN.md milestone 2 */
+    clock,
+    terrain,
+    update: (dtS, _elapsedS, altitudeM) => {
+      advanceClock(clock, dtS);
+      const sky = skyAt(clock.hourOfDay);
+
+      applyRgb(background, sky.sky);
+      applyRgb(fog.color, sky.fog);
+      const range = fogRange(altitudeM);
+      fog.near = range.nearM;
+      fog.far = range.farM;
+
+      sun.position.set(
+        sky.sunDir.x * SUN_DISTANCE_M,
+        sky.sunDir.y * SUN_DISTANCE_M,
+        sky.sunDir.z * SUN_DISTANCE_M,
+      );
+      applyRgb(sun.color, sky.sunColor);
+      sun.intensity = sky.sunIntensity;
+      applyRgb(ambient.color, sky.ambientColor);
+      ambient.intensity = sky.ambientIntensity;
     },
+    info: () =>
+      `seed: ${seed}  water: ${terrain.water.kind}\n` +
+      `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
+}
+
+function applyRgb(target: Color, rgb: Rgb): void {
+  target.setRGB(rgb.r, rgb.g, rgb.b, SRGBColorSpace);
+}
+
+function formatHour(hourOfDay: number): string {
+  const h = Math.floor(hourOfDay);
+  const m = Math.floor((hourOfDay - h) * 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }

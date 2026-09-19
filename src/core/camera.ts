@@ -1,6 +1,12 @@
-import { PerspectiveCamera, Vector3 } from 'three';
+import { PerspectiveCamera } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ALTITUDE } from '@/state/altitude';
+
+export interface CameraRigOptions {
+  startAltitudeM?: number;
+  /** How far the viewer may pan the look-at point from the centre, in metres. */
+  panLimitM?: number;
+}
 
 export interface CameraRig {
   camera: PerspectiveCamera;
@@ -11,14 +17,20 @@ export interface CameraRig {
   resize: (w: number, h: number) => void;
 }
 
+/** Opening view: looking down at about 30 degrees off vertical (PLAN.md 2). */
+const START_TILT = 0.58;
+
 /**
  * A single orbit camera whose distance-to-target is the "altitude" of the
  * viewer. Zooming (scroll / pinch) changes altitude; altitude drives what the
  * world shows. The polar angle is clamped so the viewer always looks down.
  */
-export function createCameraRig(domElement: HTMLElement): CameraRig {
+export function createCameraRig(domElement: HTMLElement, options: CameraRigOptions = {}): CameraRig {
+  const startAltitudeM = options.startAltitudeM ?? ALTITUDE.start;
+  const panLimitM = options.panLimitM ?? ALTITUDE.max;
+
   const camera = new PerspectiveCamera(45, 1, 1, ALTITUDE.max * 4);
-  camera.position.set(0, ALTITUDE.start, ALTITUDE.start * 0.6);
+  camera.position.set(0, startAltitudeM, startAltitudeM * START_TILT);
   camera.lookAt(0, 0, 0);
 
   const controls = new OrbitControls(camera, domElement);
@@ -32,19 +44,50 @@ export function createCameraRig(domElement: HTMLElement): CameraRig {
   controls.zoomSpeed = 0.6;
   controls.screenSpacePanning = false;
 
-  const tmp = new Vector3();
+  const altitude = (): number => Math.max(0, camera.position.y - controls.target.y);
 
   return {
     camera,
     controls,
-    altitude: () => Math.max(0, camera.position.y - controls.target.y),
+    altitude,
     update: () => {
       controls.update();
-      tmp.copy(camera.position);
+      clampTarget(controls, panLimitM);
+      updateClipPlanes(camera, altitude());
     },
     resize: (w, h) => {
       camera.aspect = w / Math.max(h, 1);
       camera.updateProjectionMatrix();
     },
   };
+}
+
+/** Panning must not carry the viewer off the edge of the world. */
+function clampTarget(controls: OrbitControls, panLimitM: number): void {
+  const r = Math.hypot(controls.target.x, controls.target.z);
+  if (r > panLimitM) {
+    const k = panLimitM / r;
+    controls.target.x *= k;
+    controls.target.z *= k;
+  }
+  controls.target.y = 0;
+}
+
+/**
+ * Depth precision scales with the near plane, and Zenith spans 12 m to 6 km.
+ * A fixed near plane of 1 m leaves metres of depth error at satellite height,
+ * which makes the roads fight with the ground they are painted on. Growing the
+ * near plane with altitude keeps the error well under the layer offsets in
+ * world/ground.ts. The thresholds only trip on a real change, so the projection
+ * matrix is not rebuilt every frame.
+ */
+function updateClipPlanes(camera: PerspectiveCamera, altitudeM: number): void {
+  const near = Math.min(90, Math.max(0.5, altitudeM * 0.012));
+  const far = altitudeM * 3 + 8000;
+  const nearDrift = near < camera.near * 0.8 || near > camera.near * 1.25;
+  const farDrift = far < camera.far * 0.8 || far > camera.far * 1.25;
+  if (!nearDrift && !farDrift) return;
+  camera.near = near;
+  camera.far = far;
+  camera.updateProjectionMatrix();
 }

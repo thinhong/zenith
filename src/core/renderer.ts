@@ -14,6 +14,10 @@ export async function createRenderer(
   const renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' });
   await renderer.init();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // three resets these counters inside its own animation loop, which runs
+  // before ours and would always hand the HUD zeroes. core/loop.ts drives the
+  // frame here, so reset them there instead.
+  renderer.info.autoReset = false;
   renderer.outputColorSpace = SRGBColorSpace;
   container.appendChild(renderer.domElement);
   const backend: Backend =
