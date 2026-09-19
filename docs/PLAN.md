@@ -1,0 +1,383 @@
+# Zenith: implementation plan
+
+Status: v1, 19 September 2026. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+
+## 1. What Zenith is
+
+Zenith is a small browser world that you look down on from a high place. You scroll to zoom from satellite height down to the street. From high up you see only patterns: rivers of traffic, lights coming on at dusk. As you go lower, sound rises, and you start to see tiny people walking to work, driving, sitting at desks. At street level, short thoughts appear above their heads ("must finish the report", "why hasn't she replied"). Zoom out again and the words shrink to nothing.
+
+The same piece of land can be viewed in different eras (rice fields, an old citadel, a colonial town, a modern city, a green ruin) to carry the idea of reincarnation: the clothes change, the worries do not. A small light (a "soul") can be followed from one life to the next.
+
+The purpose is to remind the viewer to stay calm: to watch the world like an outsider, not an actor. Zenith is not a game with goals. There is nothing to win, collect, or finish.
+
+### 1.1 Feeling we want (design principles)
+
+1. **Altitude is the meaning.** The only real "mechanic" is zooming. Everything the world shows, plays, or says is a function of altitude. Do not add features that ignore altitude.
+2. **Show, do not tell.** No explanatory text, no quotes, no onboarding tips about calmness. The scene must carry the idea on its own.
+3. **Tender, not contemptuous.** The tiny people are trying hard, like the viewer. Thoughts are relatable and gently funny, never mocking. Any content that laughs *at* people is rejected.
+4. **Slow.** Camera moves are damped. Nothing flashes. Time-lapse is the only fast thing, and it is optional.
+5. **Toy world, not simulation.** Low-poly shapes, flat colours, no textures. It should feel like a model city on a table, seen from above.
+6. **Quiet UI.** Controls hide themselves after a few seconds. No score, no badges, no login, no analytics, no notifications.
+7. **Finishable.** Each milestone below must be shippable on its own. Ship M1 to GitHub Pages before starting M2.
+
+### 1.2 Non-goals (do not build these)
+
+- No backend, accounts, database, or network calls at runtime (except loading the site's own static files).
+- No free-text input from the viewer (this was considered and rejected).
+- No realistic assets, photogrammetry, or textures above 512 px.
+- No multiplayer, chat, sharing buttons, or social features.
+- No achievements, scores, timers, streaks, or "progress".
+- No third-party UI frameworks (React, Vue, etc.). Plain DOM and CSS are enough for the tiny UI.
+
+## 2. The viewer's experience, step by step
+
+1. The page opens on a black-blue background. Within 3 seconds the city fades in, seen from about 900 m ("mountain" band), slightly tilted, near dusk. Soft wind is heard after the first click or touch (browsers require a gesture before audio).
+2. The viewer scrolls or pinches. The camera descends with damping. At about 1200 m, cars appear as moving dots on the roads. At about 300 m, people appear as small walking figures. The city murmur fades in as the wind fades out.
+3. Below about 60 m ("street" band), a few thought bubbles appear over the nearest people, at most six at a time. They are short, plain sentences. They fade in over half a second and drift away when the person walks out of range.
+4. The viewer zooms back out. The words shrink and vanish first, then the people, then the cars, then the buildings flatten into a colour map with lights. At 3500 m and above ("satellite"), there is only the land, the lights, and the wind.
+5. A thin bar at the bottom offers: an era dial (five eras), four vantage buttons (roof, mountain, cloud, satellite), a mute button, and a "?" that shows the controls. The bar hides after 4 seconds without input and returns on any move.
+6. Dragging the era dial cross-fades the land into another era over about 3 seconds: buildings sink into the ground, new ones rise. The people keep walking, in new clothes (colours), with new thoughts and new sounds.
+7. Clicking a person (only in the street band) makes the camera follow them gently and shows a three-line "life" card (a name, an age, one worry). After about 20 seconds, or on any zoom, a small light leaves the person, rises, and settles on someone else, possibly in another era. The camera follows the light. This is the reincarnation moment. It can be ignored entirely.
+8. Day and night cycle slowly (a full day in about 6 minutes). A "century in a minute" button in the era dial plays all eras in sequence as a time-lapse and then stops.
+
+## 3. Technology and constraints
+
+| Item | Decision |
+|---|---|
+| Renderer | three.js `WebGPURenderer` (from `three/webgpu`). It uses WebGPU where available and falls back to WebGL2 by itself. Do not write raw GLSL; use three's node materials / TSL if a custom shader is needed. |
+| Language | TypeScript, strict mode, no `any`. |
+| Bundler / dev server | Vite 7. Path alias `@/` = `src/`. |
+| Tests | Vitest for pure logic (no three.js objects in tests). Playwright smoke test for rendering (`npm run smoke`). |
+| Hosting | GitHub Pages, deployed by `.github/workflows/deploy.yml` on every push to `main`. Site URL: `https://<user>.github.io/zenith/`. The base path is set from the repo name. |
+| Audio | Web Audio API. Procedural noise for wind; small looped OGG/MP3 files (each under 200 kB) for murmur and era accents. |
+| UI | Plain DOM + CSS in `index.html` and `src/ui/`. No framework. |
+| Units | 1 world unit = 1 metre. Y is up. Ground is the plane y = 0. |
+
+### 3.1 Performance budgets (hard limits; a change that breaks one is not merged)
+
+- JavaScript bundle: at most 1.2 MB gzipped in total.
+- All static assets (audio, data, fonts): at most 15 MB in total.
+- Draw calls per frame: at most 150. Use `InstancedMesh` for anything that repeats (buildings, people, cars, trees, windows).
+- Frame rate: 60 fps on a 2020 laptop with integrated graphics; at least 30 fps on a 2022 mid-range Android phone (for example a Samsung A53). Test on a real phone before closing a milestone.
+- Time to first rendered frame: under 3 seconds on a 4G connection.
+- Memory: under 300 MB in the browser task manager.
+- Simulation: at most 4 ms of CPU per frame for agent updates. Use typed arrays and time-slicing (update far agents less often), never one JavaScript object per agent per frame.
+
+### 3.2 Browser support
+
+Latest Chrome, Edge, Safari, Firefox on desktop; Chrome and Safari on phones. If WebGL2 is missing, show a one-line message (already handled in `src/main.ts`).
+
+## 4. Architecture
+
+### 4.1 Data flow
+
+```
+input (scroll, pinch, drag, clicks, keys)
+   -> CameraRig (altitude in metres, target, follow mode)
+   -> AltitudeState (band + smooth 0..1 blend factors per band edge)
+   -> systems read altitude and time:
+        BuildingSystem   (what geometry/lights to show)
+        TrafficSystem    (dots vs cars, count, update rate)
+        PeopleSystem     (hidden / dots / figures, update rate)
+        ThoughtSystem    (only in street band; picks up to 6 nearby people)
+        AudioSystem      (wind gain, murmur gain, era accents)
+        EraSystem        (which generator built the world; cross-fade progress)
+        SoulSystem       (follow target, life card, hand-over)
+   -> renderer.render(scene, camera)
+```
+
+Altitude and time are the only global inputs. Systems never talk to each other directly; they read shared state (`src/state/`) and write to their own three.js objects.
+
+### 4.2 Module map (target layout; create files as milestones need them)
+
+```
+src/
+  main.ts                  bootstrap: renderer, rig, world, systems, loop
+  core/
+    renderer.ts            WebGPURenderer with WebGL2 fallback (done)
+    camera.ts              OrbitControls-based rig; altitude(); follow(); flyTo() (partly done)
+    loop.ts                rAF loop with clamped dt (done)
+    input.ts               key bindings, touch helpers, idle timer
+  state/
+    altitude.ts            bands, boundaries, smoothstep blends (done)
+    clock.ts               day clock (0..24 h), speed, pause
+    era.ts                 current era id, transition progress 0..1
+    settings.ts            mute, reduced motion, seed (persist in localStorage)
+  world/
+    seed.ts                deterministic PRNG (done)
+    world.ts               assembles a World from an Era generator (placeholder done)
+    terrain.ts             ground disc, mountain ring at the edge, water
+    roads.ts               road graph: nodes, edges, lanes; pathfinding helper
+    lots.ts                city blocks split into lots; each lot has a use (home, work, market, temple, park)
+    buildings.ts           InstancedMesh per building style; window lights at night
+    props.ts               trees, lamps, boats (instanced)
+    eras/
+      index.ts             Era interface + registry
+      fields.ts            era 1: rice fields, huts, dirt paths, ox carts (~1500)
+      citadel.ts           era 2: walled town, temple, market (~1800)
+      colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
+      modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default)
+      after.ts             era 5: overgrown ruins, birds, few people (~2300)
+  agents/
+    pool.ts                typed-array pool: position, heading, speed, state, lot ids
+    people.ts              PeopleSystem: schedules, walking, instanced figures
+    traffic.ts             TrafficSystem: vehicles on road graph, dots when high
+    schedule.ts            pure: given clock hour + role -> where an agent wants to be
+  thoughts/
+    thoughts.ts            ThoughtSystem: picks people, projects to screen, DOM labels
+    content.ts             thought texts by era and by place (data only)
+  souls/
+    souls.ts               SoulSystem: pick, follow, life card, hand-over animation
+    lives.ts               life card templates by era (data only)
+  audio/
+    audio.ts               AudioSystem: context, gesture unlock, wind, murmur, accents
+  ui/
+    hud.ts                 debug overlay, H to toggle (done)
+    bar.ts                 bottom bar: era dial, vantage buttons, mute, help; auto-hide
+    lifecard.ts            the three-line card for a followed person
+  content/                 (optional) shared palettes and names
+public/
+  audio/                   small looped sounds (added in M4)
+scripts/
+  smoke.mjs                headless render check (done)
+docs/
+  PLAN.md                  this file
+  screenshots/             one screenshot per closed milestone
+```
+
+Rule: pure logic (schedules, pathfinding, band maths, generators' layout decisions) lives in functions that take plain data and return plain data, so Vitest can test them without a GPU. three.js objects are created in thin "system" files that call the pure functions.
+
+### 4.3 Key data types (TypeScript sketches; refine as you implement)
+
+```ts
+// state/altitude.ts (exists)
+type AltitudeBand = 'street' | 'roof' | 'mountain' | 'cloud' | 'satellite';
+
+// world/eras/index.ts
+interface Era {
+  id: 'fields' | 'citadel' | 'colonial' | 'modern' | 'after';
+  year: number;                    // shown on the dial, e.g. 1500
+  palette: Palette;                // ground, road, 3..5 building colours, 4..6 clothing colours, sky at noon/dusk/night
+  build(rng: Rng, terrain: Terrain): EraLayout; // pure: lots, roads, props, spawn counts
+  thoughts: ThoughtSet;            // from thoughts/content.ts
+  soundscape: SoundscapeSpec;      // which loops, base gains
+}
+
+interface EraLayout {
+  roads: RoadGraph;                // nodes: {x,z}; edges: {a,b,width,kind}
+  lots: Lot[];                     // {id, polygon or rect, use, height, style}
+  props: PropInstance[];           // {kind, x, z, rotation, scale}
+  population: { people: number; vehicles: number };
+}
+
+type LotUse = 'home' | 'work' | 'market' | 'temple' | 'park' | 'water';
+
+// agents/pool.ts
+// Structure-of-arrays. N = capacity (people 4000, vehicles 800 by default).
+interface AgentPool {
+  x: Float32Array; z: Float32Array; heading: Float32Array; speed: Float32Array;
+  state: Uint8Array;               // 0 idle, 1 walking, 2 working, 3 resting, ...
+  role: Uint8Array;                // index into schedule roles
+  home: Uint16Array; work: Uint16Array; // lot ids
+  target: Uint16Array;             // current destination lot id
+  pathIdx: Uint16Array;            // progress along current path
+  clothes: Uint8Array;             // palette index
+  alive: Uint8Array;               // 1 if in use
+}
+
+// thoughts/content.ts
+interface Thought { text: string; place: LotUse | 'street'; weight?: number }
+type ThoughtSet = Record<Era['id'], Thought[]>;
+
+// souls/lives.ts
+interface LifeCard { name: string; age: number; worry: string }
+```
+
+### 4.4 Altitude policy (what each band shows)
+
+| Band | Metres | Buildings | Vehicles | People | Thoughts | Sound |
+|---|---|---|---|---|---|---|
+| satellite | 3500+ | flat colour blocks, window lights at night only | none | none | none | wind only |
+| cloud | 1200 to 3500 | instanced boxes, no windows | moving dots along roads (one `Points` or tiny instanced quads) | none | none | wind, faint murmur |
+| mountain | 300 to 1200 | boxes with window rows | boxes, 2 colours | dots | none | wind fading, murmur rising |
+| roof | 60 to 300 | same, plus roof props | boxes | instanced figures, walk animation by bobbing | none | murmur, occasional accents |
+| street | 12 to 60 | same | boxes, lights at night | figures, activity poses | up to 6, nearest first, within 40 m of the target | murmur close, accents (bell, horn, birds) |
+
+Transitions use `smoothstep` over a 20 percent window around each boundary so nothing pops. The thresholds live in one place (`state/altitude.ts`) and are tuned by feel, not hard-coded elsewhere.
+
+### 4.5 Time model
+
+- `clock.hour` runs from 0 to 24 and wraps. Default speed: one day per 6 real minutes. Pause with the space key.
+- Sun direction, sky colour, fog colour, and window-light intensity are pure functions of `clock.hour` (in `world/sky.ts` or inside `terrain.ts`).
+- Agent schedules read `clock.hour`: home at night, commute in the morning, work by day, market or park in the evening. Each role has a small offset so not everyone moves at once.
+- Era time-lapse ("century in a minute") is separate: it steps through eras 1 to 5, spending 12 seconds on each, then stops on era 5. It does not change the day clock.
+
+### 4.6 Era transition
+
+A transition is a value from 0 to 1 over about 3 seconds. Old buildings scale their height toward 0 (sink), new ones scale from 0 to full. Roads cross-fade by colour. Agents are re-spawned for the new era during the middle of the transition (they are tiny, nobody notices). Sounds cross-fade. Only two eras are ever in memory at once.
+
+## 5. Art direction
+
+- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 12 m wide (modern), 6 m (colonial), 3 m dirt paths (fields). Blocks are about 80 m. The city sits on a ground disc of radius 1500 m with a low mountain ring from 1500 m to 2200 m and fog beyond.
+- **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
+- **Colours.** Flat `MeshLambertMaterial` or node equivalents, 3 to 5 building colours per era, low saturation, slightly warm. Night: dark blue-grey ground, warm yellow windows (emissive). The single accent colour is the soul light (pale gold). Store each era's palette in its era file.
+- **Light.** One directional sun plus a hemisphere or ambient light. Shadows only for the sun, only in roof and street bands, low resolution (1024). Turn shadows off above 300 m.
+- **Fog.** Always on. Fog colour equals sky horizon colour so the world dissolves at the edge instead of ending.
+- **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
+- **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
+
+## 6. Milestones
+
+Each milestone is one or more pull requests. A milestone is closed when: `npm run typecheck`, `npm test`, `npm run build`, and `npm run smoke` pass; the manual checklist below is done on desktop and on a phone; a screenshot is saved in `docs/screenshots/<milestone>.png`; and this file's status line is updated.
+
+### M0. Skeleton (done, 19 Sep 2026)
+
+Vite + TypeScript + three.js WebGPURenderer with WebGL2 fallback, orbit camera clamped to look down, altitude bands, seeded PRNG, placeholder grid of 1,600 instanced boxes, debug HUD (key H), GitHub Pages workflow, Vitest and Playwright smoke test.
+
+To do once on GitHub: create the repo `zenith`, push to `main`, then in the repo settings under Pages set Source to "GitHub Actions". The workflow deploys on the next push.
+
+### M1. The city (modern era only)
+
+Goal: a believable low-poly modern city seen from any altitude, with day and night.
+
+Tasks:
+1. `world/terrain.ts`: ground disc r = 1500 m, mountain ring (a ring of cones/hills 1500 to 2200 m, heights 100 to 400 m), a river or coastline cutting the disc (rng-chosen), fog matched to sky.
+2. `world/roads.ts`: grid road graph with a few diagonals and a ring road; pure `buildRoadGraph(rng, terrain)`; helper `nearestNode(x,z)` and `shortestPath(a,b)` (A* on the graph; test it).
+3. `world/lots.ts`: split blocks into 2 to 6 lots each; assign `LotUse` with weights that vary by distance from centre (more work downtown, more homes outside, parks and a temple sprinkled in). Pure and tested.
+4. `world/buildings.ts`: one `InstancedMesh` per building style (3 styles: slab, tower, low). Heights from lot use and distance to centre. Window lights: an emissive node/material whose intensity is a function of `clock.hour`, plus per-instance random "some windows are dark" via an instance attribute.
+5. `world/sky.ts` + `state/clock.ts`: sun direction, sky/fog colour ramp (noon, dusk, night, dawn), day speed, pause key.
+6. `world/props.ts`: trees (cone + cylinder) in parks and along boulevards, street lamps that light at night (emissive only, no point lights).
+7. Altitude policy for buildings: above 3500 m swap to the flat colour version (a second cheap material or just remove window emissive) and hide props.
+
+Acceptance:
+- From 5000 m the city reads as a real city shape with a river/coast and a mountain ring, not a uniform grid.
+- Night looks like a city at night: window lights and lamps, dark ground, no bright sky.
+- Draw calls under 60. 60 fps desktop, over 30 fps on a mid-range phone at 900 m.
+- Regenerating with a different seed (add `?seed=123` URL param) gives a different but equally good city. Same seed gives the same city.
+
+### M2. People and traffic
+
+Goal: the city is inhabited. Tiny figures walk between home, work, market, park; vehicles drive on roads. Both disappear at the right altitudes.
+
+Tasks:
+1. `agents/pool.ts`: structure-of-arrays pool with capacity 4000 people and 800 vehicles. No per-agent objects.
+2. `agents/schedule.ts` (pure, tested): `desiredLotUse(role, hour, rng)`; roles: office worker, shopkeeper, student, retired, night worker. Include small random offsets so movement is staggered.
+3. `agents/people.ts`: spawn people into homes; each frame (time-sliced: agents within 400 m of the camera target update every frame, others every 8th frame) move along their path at 1.2 to 1.6 m/s; on arrival switch to a pose state (working, resting) for a scheduled duration; then pick the next destination. Render with one `InstancedMesh` of a 3-box figure; colour per instance from the era's clothing palette; hide entirely above 300 m; render as flat dots (a `Points` object sharing the same position arrays) between 300 and 1200 m.
+4. `agents/traffic.ts`: vehicles follow road edges lane-offset, stop briefly at nodes (fake intersections), speed 8 to 14 m/s. Render as instanced boxes below 1200 m and as moving dots between 1200 and 3500 m. Above 3500 m, hidden.
+5. Activity poses in the street band: at a work lot, figures stand still in rows (desks); at a market, they cluster; at a park, they sit (scale y by 0.6). Simple, readable from 30 m.
+6. Optional scooters for the modern era (a smaller vehicle class, more of them, this is Vietnam).
+
+Acceptance:
+- At 800 m you see traffic flowing; at 200 m you see people; at 40 m you can watch one person walk to a door and "go inside" (disappear for a while).
+- Morning and evening show visible commute waves.
+- Simulation CPU under 4 ms per frame with 4000 people + 800 vehicles (measure with `performance.now()` around the update and print in the HUD).
+
+### M3. Thoughts
+
+Goal: below 60 m, short thoughts appear above nearby people and vanish as you rise.
+
+Tasks:
+1. `thoughts/content.ts`: at least 60 thoughts for the modern era, grouped by place (`home`, `work`, `market`, `temple`, `park`, `street`). Plain, present-tense, first-person, under 60 characters. Relatable and gentle (deadlines, money, love, health, small errands, career, food). No mocking, no politics, no brand names.
+2. `thoughts/thoughts.ts`: each frame in the street band, find up to 6 people nearest to the camera target within 40 m (reuse the time-sliced "near" list). Give each a thought chosen by their current place. Keep a thought attached to the same person for at least 8 s. Project head position to screen; position a DOM pill; opacity = `smoothstep(60, 40, altitude)` times a per-thought fade-in.
+3. Tests for the selection logic (pure): stable choice, no duplicates, respects the 6 cap, keeps thoughts for 8 s.
+
+Acceptance:
+- Scrolling down from 100 m to 30 m, thoughts fade in after the people are clearly visible, never before.
+- Zooming out, the text is unreadable by 60 m and gone by 70 m.
+- No layout jank: pills do not overlap each other more than briefly (simple vertical nudge if two are within 24 px).
+
+### M4. Sound and the quiet UI
+
+Goal: the world sounds like a place, and the controls exist but stay out of the way.
+
+Tasks:
+1. `audio/audio.ts`: AudioContext unlocked on first pointer/key event. Wind = filtered pink noise, gain rises with altitude (0.1 at street, 0.6 at satellite). City murmur = a looped file `public/audio/murmur-modern.ogg` (under 200 kB, under 20 s, seamless), gain = `1 - smoothstep(300, 2500, altitude)`. Accents = short one-shots (horn, bell, birds) triggered rarely in roof/street bands. Mute button and a `?mute=1` param. Respect `prefers-reduced-motion` by not auto-playing time-lapse.
+2. `ui/bar.ts`: bottom bar with era dial (disabled until M5, show only "Modern 2020"), four vantage buttons, mute, help. Auto-hide after 4 s idle; show on pointer move or touch. Keyboard: 1 to 5 eras, R/M/C/S vantage, space pause, H HUD, ? help.
+3. `core/camera.ts`: `flyTo(preset)` tween over 2.5 s with ease-in-out; presets: roof (150 m, inside city, tilted 35 degrees), mountain (900 m, at the ring, tilted 45 degrees), cloud (2500 m, tilted 15 degrees), satellite (5500 m, straight down).
+4. Load screen: fade from black over 1.5 s once the first frame is ready.
+
+Acceptance:
+- Sound cross-fades smoothly through the whole zoom range; no clicks or gaps in the loop.
+- On a phone, pinch zoom and one-finger orbit work; the bar is tappable; nothing is under the notch.
+- Site loads and shows the first frame under 3 s on throttled "Fast 4G" in Chrome devtools.
+
+### M5. Eras
+
+Goal: the same land through five eras, with a time dial and a "century in a minute" time-lapse.
+
+Tasks:
+1. `world/eras/index.ts`: the `Era` interface and registry. Refactor the modern city from M1 into `eras/modern.ts` so it becomes one generator among five. The terrain (disc, river, mountains) is shared across eras; only the layout changes.
+2. Generators: `fields.ts` (paddies as flat coloured quads with dyke lines, scattered huts, dirt paths, ox carts as vehicles, people in conical hats = a cone on the head), `citadel.ts` (a square wall with 4 gates, a temple lot at the centre, dense low houses, a market square, boats on the river), `colonial.ts` (low 2 to 3 storey ochre/yellow buildings, tree-lined boulevards, a tram line as a vehicle route, bicycles as vehicles), `after.ts` (modern layout but buildings partly sunk and green, trees everywhere, few people, birds as a `Points` flock, no cars).
+3. `state/era.ts` + transition (see 4.6): height scaling for sink/rise, road colour cross-fade, agent respawn at t = 0.5, audio cross-fade. Each era gets its own thought set (at least 40 per era) and murmur loop.
+4. Era dial in the bar: a horizontal slider with five stops and the year label; keys 1 to 5; "century in a minute" button that steps through eras 1 to 5, 12 s each, then stops.
+
+Acceptance:
+- Switching eras never drops below 30 fps on a phone (measure the transition frame).
+- From satellite height each era is recognisable at a glance by its shape and colour.
+- People's thoughts change with the era but stay the same kind of worry (a farmer worries about rain, a clerk about the report).
+
+### M6. Souls
+
+Goal: follow one small light from one life to the next.
+
+Tasks:
+1. Picking: in the street band, a click/tap raycasts the people `InstancedMesh` (`instanceId`) and selects that person. Highlight with a faint gold ring on the ground under them.
+2. `core/camera.ts` follow mode: the orbit target tracks the person with damping; the viewer can still orbit and zoom; zooming above 60 m releases the follow.
+3. `ui/lifecard.ts` + `souls/lives.ts`: a three-line card (name from an era-appropriate list, age, one worry drawn from the person's current thought set). Fades in at the corner of the screen, not over the person.
+4. Hand-over: after 20 s of following (or on release), a small gold light (a sprite or a small emissive sphere with a soft glow) rises from the person to about 80 m, drifts, and descends onto another person. With probability 0.5 the destination is in another era: trigger the era transition while the light is at its highest point so the land changes under it. The card updates to the new life. The chain continues until the viewer zooms out.
+5. Reduced motion: if `prefers-reduced-motion`, the hand-over is a cross-fade instead of a flight.
+
+Acceptance:
+- A full soul chain across three eras works without a hitch and without the camera clipping through buildings (raise the camera minimum during flight).
+- Following someone for two minutes shows them do at least two different things (walk, work, rest).
+
+### M7. Polish and performance
+
+Tasks: profile on a real phone; tune band thresholds by feel; adjust palettes so all five eras look like one family; make sure nothing pops; adaptive quality (drop pixel ratio to 1 and shadows off when frame time exceeds 20 ms for 2 s); `?seed=` sharing; a tiny "about" line in the help popup (one sentence, no lecture).
+
+Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended session shows no memory growth.
+
+## 7. Content guidelines (thoughts and life cards)
+
+- First person, present tense, plain words, under 60 characters. Example: "I should call my mother." "The rent is due Friday." "Did I lock the door?" "One more year, then I rest." "He did not text back."
+- Mix of work, money, love, health, food, small errands, hopes, and small kindnesses. About one in ten should be light and funny. About one in ten should be tender ("I hope she gets in.").
+- Era flavour comes from nouns, not from old-fashioned grammar. Fields: rain, buffalo, harvest, tax collector, the temple fair. Citadel: the mandarin's exam, the market price of silk, the drum at dawn. Colonial: the tram fare, French lessons, a letter from Hue. Modern: the report, the promotion, the scooter loan, the grant deadline. After: the birds, the flood line, the old tower.
+- Never: mocking, politics, religion as a joke, brand names, real people, cruelty.
+- Life cards: `name` from an era list (Vietnamese names throughout; the land is the same land), `age` 6 to 85, `worry` one thought.
+
+## 8. Testing and verification
+
+- `npm run typecheck`: strict TypeScript, no errors.
+- `npm test`: Vitest unit tests for everything pure (PRNG, bands, road graph, pathfinding, lots, schedules, thought selection, era transition maths). Aim for every pure module to have a test file next to it.
+- `npm run build`: production build; check the reported gzipped size against the budget.
+- `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
+- Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
+- Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era.
+
+## 9. Decisions log
+
+| Date | Decision | Why |
+|---|---|---|
+| 2026-09-19 | three.js over PixiJS or Godot | true 3D zoom from sky to street; instancing; small bundle; static hosting |
+| 2026-09-19 | WebGPURenderer with automatic WebGL2 fallback | future-proof, one code path |
+| 2026-09-19 | No free-text "put yourself in it" feature | owner decision |
+| 2026-09-19 | No UI framework | UI is a bar and a card; DOM is enough |
+| 2026-09-19 | Procedural everything, seeded | no asset pipeline, tiny download, infinite variety |
+| 2026-09-19 | Five eras on one shared terrain | carries the reincarnation idea with one world, not five |
+
+## 10. Open questions (decide before the milestone that needs them)
+
+- M1: river or coast, or let the seed choose? (Plan says seed chooses.)
+- M4: procedural murmur (cheaper, no files) versus recorded loops (richer)? Start procedural; add files only if it sounds thin.
+- M5: should the era dial be continuous (cross-fade any two neighbours at any ratio) or five discrete stops? Plan says discrete stops with a 3 s transition; continuous is a possible later upgrade.
+- M6: should a soul ever land on a vehicle driver? (No, for now.)
+
+## 11. Glossary
+
+- **Altitude**: camera height above ground in metres; the main input to everything.
+- **Band**: one of five altitude ranges (street, roof, mountain, cloud, satellite).
+- **Era**: one of five layouts of the same land.
+- **Lot**: a plot of land inside a block with one use (home, work, market, temple, park, water).
+- **Agent**: a person or vehicle in the typed-array pool.
+- **Soul**: the small light that moves between lives when the viewer follows someone.
+- **Vantage**: a preset camera position (roof, mountain, cloud, satellite).
