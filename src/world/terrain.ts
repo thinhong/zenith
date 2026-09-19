@@ -8,14 +8,14 @@ import { range, type Rng } from '@/world/seed';
  * All distances are metres from the centre of the world at (0, 0).
  */
 export const TERRAIN = {
-  /** Flat land. Wider than the mountain ring so the rim is lost in fog. */
-  groundRadiusM: 2400,
+  /** Flat land. Reaches well past the mountain ring so its rim is lost in fog. */
+  groundRadiusM: 4200,
   /** Nothing is built beyond this. */
   cityRadiusM: 1150,
   mountainInnerM: 1500,
   mountainOuterM: 2250,
   /** How far the water reaches past the land, so no open edge is ever visible. */
-  waterReachM: 6000,
+  waterReachM: 9000,
 } as const;
 
 /** The seed decides whether this land has a river through it or a coast beside it. */

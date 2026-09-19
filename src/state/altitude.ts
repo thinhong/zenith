@@ -56,15 +56,17 @@ export function detailFactor(fade: Fade, altitudeM: number): number {
 }
 
 /**
- * Fog follows the camera. Looking straight down from 5 km the ground below is
- * 5 km away, so a fixed fog range would bury the whole world. Scaling near and
- * far with altitude keeps what is underneath clear and dissolves the horizon.
+ * Fog hides the edge of the world. three's Fog measures distance from the
+ * camera, so the range has to grow with altitude: looking straight down from
+ * 5 km the ground below is 5 km away and must still be sharp. These numbers are
+ * tuned so haze starts a little past the mountain ring at every height and the
+ * land dissolves before its rim is reached.
  */
 export const FOG = {
-  nearScale: 0.9,
-  nearOffsetM: 250,
-  farScale: 0.9,
-  farOffsetM: 3200,
+  nearScale: 1.15,
+  nearOffsetM: 500,
+  farScale: 1.15,
+  farOffsetM: 3600,
 } as const;
 
 export function fogRange(altitudeM: number): { nearM: number; farM: number } {

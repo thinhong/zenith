@@ -2,6 +2,8 @@ import { AmbientLight, Color, DirectionalLight, Fog, SRGBColorSpace, Scene } fro
 import { fogRange } from '@/state/altitude';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
 import { createGround } from '@/world/ground';
+import { createRoadMesh } from '@/world/road-mesh';
+import { buildRoadGraph, type RoadGraph } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
 import { skyAt, type Rgb } from '@/world/sky';
 import { buildTerrain, type TerrainSpec } from '@/world/terrain';
@@ -15,6 +17,7 @@ export interface World {
   scene: Scene;
   clock: Clock;
   terrain: TerrainSpec;
+  roads: RoadGraph;
   update: (dtS: number, elapsedS: number, altitudeM: number) => void;
   /** One line for the debug HUD. */
   info: () => string;
@@ -32,6 +35,7 @@ const SUN_DISTANCE_M = 6000;
 export function createWorld({ seed, fixedHour }: WorldOptions): World {
   const rng = mulberry32(seed);
   const terrain = buildTerrain(rng);
+  const roads = buildRoadGraph(rng, terrain);
 
   const scene = new Scene();
   const background = new Color();
@@ -41,7 +45,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
 
   const ambient = new AmbientLight(0xffffff, 0.6);
   const sun = new DirectionalLight(0xffffff, 1.2);
-  scene.add(ambient, sun, createGround(terrain));
+  scene.add(ambient, sun, createGround(terrain), createRoadMesh(roads));
 
   const clock = createClock(fixedHour ?? undefined);
   clock.paused = fixedHour !== null;
@@ -50,6 +54,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
     scene,
     clock,
     terrain,
+    roads,
     update: (dtS, _elapsedS, altitudeM) => {
       advanceClock(clock, dtS);
       const sky = skyAt(clock.hourOfDay);
@@ -71,7 +76,7 @@ export function createWorld({ seed, fixedHour }: WorldOptions): World {
       ambient.intensity = sky.ambientIntensity;
     },
     info: () =>
-      `seed: ${seed}  water: ${terrain.water.kind}\n` +
+      `seed: ${seed}  water: ${terrain.water.kind}  roads: ${roads.edges.length}\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }
