@@ -27,16 +27,16 @@ async function main(): Promise<void> {
     }
   });
 
-  let altitudeM = rig.altitude();
+  let view = rig.view();
   let fps = 0;
 
   startLoop({
     update: (dt, elapsed) => {
       renderer.info.reset();
       rig.update(dt);
-      altitudeM = rig.altitude();
+      view = rig.view();
       fps = 1 / Math.max(dt, 1e-6);
-      world.update(dt, elapsed, altitudeM);
+      world.update(dt, elapsed, view);
     },
     render: () => {
       renderer.render(world.scene, rig.camera);
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
       const stats = renderer.info.render;
       hud.set(
         `backend: ${backend}\n` +
-          `altitude: ${altitudeM.toFixed(0)} m (${altitudeBand(altitudeM)})\n` +
+          `altitude: ${view.altitudeM.toFixed(0)} m (${altitudeBand(view.altitudeM)})\n` +
           `${world.info()}\n` +
           `draws: ${stats.drawCalls}  tris: ${stats.triangles.toFixed(0)}\n` +
           `fps: ${fps.toFixed(0)}`,

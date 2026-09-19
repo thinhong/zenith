@@ -12,17 +12,15 @@ import {
 import {
   abs,
   attribute,
-  dot,
   float,
   floor,
   fract,
   mix,
-  normalLocal,
-  positionLocal,
-  sin,
+  normalWorld,
+  positionWorld,
   step,
   uniform,
-  vec2,
+  varying,
   vec3,
 } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
@@ -39,8 +37,8 @@ const WINDOW = {
   rowM: 3.6,
   colM: 4.2,
   /** Fraction of windows that are lit at night. */
-  litShare: 0.72,
-  glow: 3.0,
+  litShare: 0.42,
+  glow: 0.85,
   /** No windows in the ground floor or right under the roof. */
   skirtM: 2,
   parapetM: 1.2,
@@ -174,19 +172,17 @@ function createWindowMaterial() {
   const detail = uniform(1);
 
   const instanceColor = attribute('iColor', 'vec3');
-  const instanceSize = attribute('iSize', 'vec3');
-  const instanceSeed = attribute('iSeed', 'float');
+  // Instance attributes are read in the vertex stage, so they have to be
+  // interpolated explicitly before the fragment stage can use them. Without
+  // this the whole pattern is evaluated per vertex and smears across each face.
+  const buildingSize = varying(attribute('iSize', 'vec3'));
+  const buildingSeed = varying(attribute('iSeed', 'float'));
 
-  // Local box coordinates run 0..1 in y and -0.5..0.5 across, so multiplying by
-  // the instance size gives metres. A window is then the same size on a tower
-  // and on a corner shop.
-  const heightM = positionLocal.y.mul(instanceSize.y);
-  const facingX = step(0.5, abs(normalLocal.x));
-  const acrossM = mix(
-    positionLocal.x.mul(instanceSize.x),
-    positionLocal.z.mul(instanceSize.z),
-    facingX,
-  );
+  // Buildings stand on y = 0, so world height is height above the street, and
+  // world x/z give a window grid that lines up across the whole city.
+  const heightM = positionWorld.y;
+  const facingX = step(0.5, abs(normalWorld.x));
+  const acrossM = mix(positionWorld.x, positionWorld.z, facingX);
 
   const row = heightM.div(WINDOW.rowM);
   const col = acrossM.div(WINDOW.colM);
@@ -195,17 +191,17 @@ function createWindowMaterial() {
   const paneY = step(0.16, withinRow).mul(float(1).sub(step(0.9, withinRow)));
   const paneX = step(0.1, withinCol).mul(float(1).sub(step(0.9, withinCol)));
 
-  // Cheap per-window randomness, so some windows stay dark all night.
-  const noise = fract(
-    sin(dot(vec2(floor(row), floor(col)), vec2(12.9898, 78.233)).add(instanceSeed.mul(37))).mul(
-      43758.5453,
-    ),
-  );
+  // Cheap per-window randomness, so some windows stay dark all night. The usual
+  // fract(sin(dot(...)) * 43758) hash speckles once world coordinates get this
+  // large, so every term here is kept small enough for 32-bit floats.
+  const hashA = fract(floor(row).mul(0.1031).add(buildingSeed.mul(0.0973)));
+  const hashB = fract(floor(col).mul(0.1379).add(hashA.mul(43.21)));
+  const noise = fract(hashA.add(hashB).mul(hashB.add(19.19)).mul(7.13));
   const lit = step(1 - WINDOW.litShare, noise);
 
-  const notRoof = float(1).sub(step(0.5, abs(normalLocal.y)));
+  const notRoof = float(1).sub(step(0.5, abs(normalWorld.y)));
   const aboveStreet = step(WINDOW.skirtM, heightM);
-  const belowParapet = step(heightM, instanceSize.y.sub(WINDOW.parapetM));
+  const belowParapet = step(heightM, buildingSize.y.sub(WINDOW.parapetM));
 
   const glow = vec3(1.0, 0.82, 0.48)
     .mul(paneY)

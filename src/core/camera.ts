@@ -8,11 +8,19 @@ export interface CameraRigOptions {
   panLimitM?: number;
 }
 
+/** What every system reads each frame: how high, and over what. */
+export interface ViewState {
+  altitudeM: number;
+  targetX: number;
+  targetZ: number;
+}
+
 export interface CameraRig {
   camera: PerspectiveCamera;
   controls: OrbitControls;
   /** Height of the camera above the ground plane, in metres. */
   altitude: () => number;
+  view: () => ViewState;
   update: (dt: number) => void;
   resize: (w: number, h: number) => void;
 }
@@ -50,6 +58,7 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
     camera,
     controls,
     altitude,
+    view: () => ({ altitudeM: altitude(), targetX: controls.target.x, targetZ: controls.target.z }),
     update: () => {
       controls.update();
       clampTarget(controls, panLimitM);

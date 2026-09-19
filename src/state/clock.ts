@@ -7,8 +7,12 @@
 /** One full day per 6 real minutes (PLAN.md 4.5). */
 export const DAY_LENGTH_S = 360;
 
-/** Zenith opens near dusk (PLAN.md 2), so the first frame has lights coming on. */
-export const START_HOUR = 18.2;
+/**
+ * Zenith opens in the last of the light (PLAN.md 2): the sun is still just
+ * above the horizon and the first windows are coming on, so the viewer sees the
+ * city turn into a city at night rather than arriving after dark.
+ */
+export const START_HOUR = 17.5;
 
 export interface Clock {
   hourOfDay: number;

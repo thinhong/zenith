@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v1, 19 September 2026. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v2, 20 September 2026. M0 and M1 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -99,18 +99,21 @@ src/
     loop.ts                rAF loop with clamped dt (done)
     input.ts               key bindings, touch helpers, idle timer
   state/
-    altitude.ts            bands, boundaries, smoothstep blends (done)
-    clock.ts               day clock (0..24 h), speed, pause
+    altitude.ts            bands, boundaries, smoothstep blends, detail fades, fog range (done)
+    clock.ts               day clock (0..24 h), speed, pause (done)
     era.ts                 current era id, transition progress 0..1
-    settings.ts            mute, reduced motion, seed (persist in localStorage)
+    settings.ts            seed, reduced motion, debug overrides from the URL (done)
   world/
     seed.ts                deterministic PRNG (done)
-    world.ts               assembles a World from an Era generator (placeholder done)
-    terrain.ts             ground disc, mountain ring at the edge, water
-    roads.ts               road graph: nodes, edges, lanes; pathfinding helper
-    lots.ts                city blocks split into lots; each lot has a use (home, work, market, temple, park)
-    buildings.ts           InstancedMesh per building style; window lights at night
-    props.ts               trees, lamps, boats (instanced)
+    world.ts               assembles a World; applies sky and detail each frame (done for M1)
+    terrain.ts             pure: ground disc, mountain ring, river or coast, isBuildable (done)
+    ground.ts              three.js: land disc, water ribbon, mountain cones (done)
+    sky.ts                 pure: sun direction, sky/fog/light colours, night factor (done)
+    roads.ts               pure: road graph (nodes, edges), nearestNode, A* shortestPath (done)
+    road-mesh.ts           three.js: one InstancedMesh for the whole network (done)
+    lots.ts                pure: city blocks split into lots; each lot has a use (done)
+    buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
+    props.ts               three.js: trees and street lamps (done); boats in M5
     eras/
       index.ts             Era interface + registry
       fields.ts            era 1: rice fields, huts, dirt paths, ox carts (~1500)
@@ -218,12 +221,13 @@ A transition is a value from 0 to 1 over about 3 seconds. Old buildings scale th
 
 ## 5. Art direction
 
-- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 12 m wide (modern), 6 m (colonial), 3 m dirt paths (fields). Blocks are about 80 m. The city sits on a ground disc of radius 1500 m with a low mountain ring from 1500 m to 2200 m and fog beyond.
+- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 12 m wide (modern), 6 m (colonial), 3 m dirt paths (fields). The road grid has a 100 m pitch, so blocks are about 82 m across. The city fills a disc of radius 1400 m, ringed by low mountains from 1550 m to 2400 m. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
 - **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
 - **Colours.** Flat `MeshLambertMaterial` or node equivalents, 3 to 5 building colours per era, low saturation, slightly warm. Night: dark blue-grey ground, warm yellow windows (emissive). The single accent colour is the soul light (pale gold). Store each era's palette in its era file.
 - **Light.** One directional sun plus a hemisphere or ambient light. Shadows only for the sun, only in roof and street bands, low resolution (1024). Turn shadows off above 300 m.
 - **Fog.** Always on. Fog colour equals sky horizon colour so the world dissolves at the edge instead of ending.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
+- **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for: yellow-orange glazed tile roofs on long low halls, walled courtyard compounds on a strong central axis, pale stone courtyards, and heavy tree cover between the walls. The source is the Imperial City in Hue rather than the Forbidden City in Beijing, since the land is Vietnamese: lower walls, brick-red and ochre rather than violet, and a moat around the citadel. Build it from the same boxes and cones as every other era; the look comes from the roof colour, the axis, and the density of trees, not from imported models.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -236,9 +240,21 @@ Vite + TypeScript + three.js WebGPURenderer with WebGL2 fallback, orbit camera c
 
 To do once on GitHub: create the repo `zenith`, push to `main`, then in the repo settings under Pages set Source to "GitHub Actions". The workflow deploys on the next push.
 
-### M1. The city (modern era only)
+### M1. The city (modern era only) (done, 20 Sep 2026)
 
 Goal: a believable low-poly modern city seen from any altitude, with day and night.
+
+Closed with 14 draw calls at 900 m (27 with shadows on below 300 m, 10 from satellite height), 258 kB gzipped, 54 unit tests. Screenshots in `docs/screenshots/`: `m1.png` (opening view), `m1-night.png`, `m1-satellite.png`, `m1-seed7.png` (a river city from a different seed). Not yet checked on a real phone; that is the one open acceptance item.
+
+What changed while building it, beyond the task list:
+
+- **Fog and the land.** Fog near/far scale with altitude, because three's fog measures distance from the camera and from 5 km up the ground below is 5 km away. The land disc runs to 12 km so the fog ends the world instead of a visible rim.
+- **Camera clip planes.** Near and far now grow with altitude. A fixed 1 m near plane leaves metres of depth error at 6 km, which made the roads fight with the ground they are painted on.
+- **Window lights** are computed from world position, not local position, so they line up across the city and the pattern stays in the fragment stage. Instance attributes are wrapped in `varying()`; without that the whole pattern is evaluated per vertex and smears across each face.
+- **Hemisphere light** rather than a flat ambient, so the vertical faces of a tower catch sky light. With a flat ambient a city at noon reads as a black mass.
+- **Shadows** are in, on below 300 m only, with 40 m of hysteresis because crossing that line rebuilds shaders.
+- **Trees in the countryside** as well as in parks and along boulevards, in clumps, so the plain between the ring road and the mountains is not bare.
+- **Debug URL params** `?hour=` and `?alt=` alongside `?seed=`, so a fixed moment can be screenshotted. See section 8.
 
 Tasks:
 1. `world/terrain.ts`: ground disc r = 1500 m, mountain ring (a ring of cones/hills 1500 to 2200 m, heights 100 to 400 m), a river or coastline cutting the disc (rng-chosen), fog matched to sky.
@@ -352,7 +368,8 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - `npm run build`: production build; check the reported gzipped size against the budget.
 - `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
-- Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era.
+- Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
+- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` pins the day clock; `?alt=5200` opens at that altitude. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
 ## 9. Decisions log
 
@@ -364,10 +381,16 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-19 | No UI framework | UI is a bar and a card; DOM is enough |
 | 2026-09-19 | Procedural everything, seeded | no asset pipeline, tiny download, infinite variety |
 | 2026-09-19 | Five eras on one shared terrain | carries the reincarnation idea with one world, not five |
+| 2026-09-20 | Fog range and camera clip planes scale with altitude | a fixed range either buries the world from above or leaves a visible rim; a fixed near plane makes roads z-fight with the ground at 6 km |
+| 2026-09-20 | The land runs to 12 km and is ended by fog | "fog beyond" only works if the rim is out of sight |
+| 2026-09-20 | Hemisphere light, not ambient | tower sides need sky light or downtown reads as a black mass |
+| 2026-09-20 | Window lights keyed to world position, with instance attributes wrapped in `varying()` | keeps the pattern in the fragment stage and lines floors up across the city |
+| 2026-09-20 | Shadows below 300 m only, with 40 m hysteresis | the toggle rebuilds shaders, so it must not trip twice a second |
+| 2026-09-20 | Citadel era styled after the Imperial City in Hue | owner picked the reference in `docs/reference/citadel-style.png`; Hue rather than Beijing because the land is Vietnamese |
 
 ## 10. Open questions (decide before the milestone that needs them)
 
-- M1: river or coast, or let the seed choose? (Plan says seed chooses.)
+- M1: river or coast, or let the seed choose? **Settled: the seed chooses, roughly half and half.** A river gets up to three bridges; a coast takes a bite out of one side.
 - M4: procedural murmur (cheaper, no files) versus recorded loops (richer)? Start procedural; add files only if it sounds thin.
 - M5: should the era dial be continuous (cross-fade any two neighbours at any ratio) or five discrete stops? Plan says discrete stops with a 3 s transition; continuous is a possible later upgrade.
 - M6: should a soul ever land on a vehicle driver? (No, for now.)

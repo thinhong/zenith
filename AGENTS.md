@@ -41,6 +41,33 @@ npm run smoke        # headless render check -> docs/screenshots/smoke.png
 - No magic numbers in systems: constants live at the top of the module or in `src/state/`.
 - Keep `src/main.ts` a thin bootstrap; wiring only.
 
-## What exists today (M0)
+## What exists today (M0 and M1)
 
-`src/core/renderer.ts` (WebGPURenderer + WebGL2 fallback), `src/core/camera.ts` (orbit rig clamped to look down; `altitude()`), `src/core/loop.ts`, `src/state/altitude.ts` (bands + smoothstep), `src/world/seed.ts` (mulberry32 PRNG), `src/world/world.ts` (placeholder instanced block grid, replace in M1), `src/ui/hud.ts` (press H), `scripts/smoke.mjs`, Pages workflow. Start with M1 in `docs/PLAN.md`.
+Pure modules, each with a test file beside it: `src/state/altitude.ts` (bands,
+detail fades, fog range), `src/state/clock.ts`, `src/state/settings.ts`,
+`src/world/seed.ts`, `src/world/sky.ts`, `src/world/terrain.ts`,
+`src/world/roads.ts` (graph + A*), `src/world/lots.ts`.
+
+three.js modules: `src/core/renderer.ts` (WebGPURenderer + WebGL2 fallback),
+`src/core/camera.ts` (orbit rig, altitude, view state, altitude-scaled clip
+planes), `src/core/loop.ts`, `src/world/ground.ts` (land, water, mountains),
+`src/world/road-mesh.ts`, `src/world/buildings.ts` (TSL window lights),
+`src/world/props.ts` (trees, lamps), `src/world/world.ts` (assembly + per-frame
+sky and detail), `src/ui/hud.ts` (press H).
+
+Start with M2 in `docs/PLAN.md`.
+
+## Notes that cost time to find
+
+- `Color.set(hex)` already lands in the renderer's working (linear) space.
+  Calling `convertSRGBToLinear()` on top made every building ten times too dark.
+- TSL: instance attributes are read in the vertex stage. Wrap them in
+  `varying()` before using them in `colorNode` / `emissiveNode`, or the whole
+  expression is evaluated per vertex and smears across each face.
+- `renderer.info` is reset inside three's own animation loop, which runs before
+  ours. `autoReset` is off and `reset()` is called from `core/loop.ts`; read the
+  counters after `render()`.
+- `emissiveNode` is only declared on `MeshStandardNodeMaterial` in the types,
+  but `NodeMaterial.setupLighting()` reads it on every node material.
+- A `fract(sin(dot(...)) * 43758)` hash speckles once world coordinates get to
+  city scale. `world/buildings.ts` uses a small-constant hash instead.

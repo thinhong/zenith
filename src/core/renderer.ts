@@ -19,6 +19,8 @@ export async function createRenderer(
   // frame here, so reset them there instead.
   renderer.info.autoReset = false;
   renderer.outputColorSpace = SRGBColorSpace;
+  // The sun only casts below the roof band; see world/world.ts.
+  renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);
   const backend: Backend =
     (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true ? 'webgpu' : 'webgl2';
