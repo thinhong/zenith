@@ -55,6 +55,8 @@ export interface EraPalette {
   land: number;
   water: number;
   road: number;
+  /** The strip either side of the carriageway. */
+  pavement: number;
   /** Eaves on the low buildings. */
   roof: number;
   canopy: number;
@@ -68,6 +70,11 @@ export interface EraPalette {
   courtyardChance: number;
   /** Multiplies the canopy size. Village trees are wider than street trees. */
   canopyScale: number;
+  /** A second, rounder crown, shrubs, and how many of each. */
+  canopyRound: number;
+  roundShare: number;
+  bush: number;
+  bushesPerTree: number;
   /** Street lamps belong to an era that has them. */
   lamps: boolean;
   /** Fraction of windows lit after dark, and how brightly they burn. */

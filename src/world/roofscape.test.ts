@@ -13,6 +13,8 @@ const STYLE: RoofStyle = {
   wingShare: 0.3,
   crowns: true,
   crownTint: [0x555555],
+  chimney: { share: 0.5, colours: [0x666666] },
+  deckTop: { share: 0.3, colours: [0x777777] },
 };
 
 function lot(over: Partial<Lot> = {}): Lot {
@@ -39,12 +41,34 @@ describe('buildRoofscape', () => {
     const lots = Array.from({ length: 200 }, (_, i) =>
       lot({ id: i, heightM: 4 + (i % 60), style: i % 60 > 40 ? 'tower' : 'low' }),
     );
-    const noWings = buildRoofscape(mulberry32(2), lots, { ...STYLE, wingShare: 0 });
+    // A garden on a deck is also a flat quad, so it is turned off here: this
+    // test is about there being exactly one roof, not about what is on it.
+    const noWings = buildRoofscape(mulberry32(2), lots, {
+      ...STYLE,
+      wingShare: 0,
+      deckTop: { share: 0, colours: [0x777777] },
+    });
     const tops = noWings.filter((s) => s.kind === 'gable' || s.kind === 'flat');
     expect(tops.length).toBe(lots.length);
     // Wings only ever add, never replace.
     const withWings = buildRoofscape(mulberry32(2), lots, STYLE);
     expect(withWings.length).toBeGreaterThan(noWings.length);
+  });
+
+  it('puts a garden on some flat decks and never on a ridged roof', () => {
+    const flats = Array.from({ length: 60 }, (_, i) => lot({ id: i, heightM: 30, style: 'slab' }));
+    const bare = buildRoofscape(mulberry32(9), flats, {
+      ...STYLE,
+      pitchedShare: 0,
+      deckTop: { share: 0, colours: [0x777777] },
+    });
+    const planted = buildRoofscape(mulberry32(9), flats, { ...STYLE, pitchedShare: 0 });
+    expect(planted.filter((s) => s.kind === 'flat').length).toBeGreaterThan(
+      bare.filter((s) => s.kind === 'flat').length,
+    );
+
+    const ridged = buildRoofscape(mulberry32(9), flats, { ...STYLE, pitchedShare: 1, pitchedMaxM: 99 });
+    expect(ridged.some((s) => s.kind === 'flat')).toBe(false);
   });
 
   it('never pitches a roof on a tall building', () => {

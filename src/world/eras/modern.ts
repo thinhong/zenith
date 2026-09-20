@@ -3,6 +3,7 @@ import type { Era, EraBuild, EraPalette, VehicleProfile } from '@/world/eras';
 import { avenueCorridors, buildBlocks, buildLots, MODERN_LOTS } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
+import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
@@ -28,12 +29,17 @@ const PALETTE: EraPalette = {
   land: 0x7e9155,
   water: 0x4a86ac,
   road: 0x6b6f77,
+  pavement: 0x9a978d,
   roof: 0x9aa0a8,
   canopy: 0x4a7038,
   trunk: 0x64513e,
   lampOn: 0xffd79a,
   courtyardChance: 0.18,
   canopyScale: 1.25,
+  canopyRound: 0x5c7a3e,
+  roundShare: 0.45,
+  bush: 0x557f3c,
+  bushesPerTree: 0.7,
   lamps: true,
   windowsLit: 0.42,
   windowGlow: 0.85,
@@ -89,6 +95,24 @@ const ROOF_STYLE: RoofStyle = {
   wingShare: 0.34,
   crowns: true,
   crownTint: [0xacb4bc, 0x98a1aa, 0xc0c8d0, 0x8e97a0],
+  chimney: { share: 0.34, colours: [0xa08a78, 0x8e7c6c, 0xb0a08c] },
+  // Roof gardens and solar racks, which is what a 2020 flat roof carries.
+  deckTop: { share: 0.3, colours: [0x5c7a44, 0x3c4a60, 0x6c8a50, 0x46566e] },
+};
+
+const STREET_STYLE: StreetStyle = {
+  wallShare: 0.42,
+  wallHeightM: 1.1,
+  wallColours: [0x9c968a, 0xaea698, 0x8c8d84, 0xb6ab96],
+  parkedShare: 0.55,
+  parked: {
+    lengthM: 4.3,
+    widthM: 1.8,
+    heightM: 1.5,
+    colours: [0xe4e0d6, 0xb4bcc4, 0x8f9aa4, 0xd0bfa8, 0x7d8c96, 0xba5c4c, 0x46535e],
+  },
+  poleShare: 0.3,
+  poleColour: 0x8a8578,
 };
 
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
@@ -99,6 +123,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const lots = buildLots(rng, terrain, blocks, avenueCorridors(roads), MODERN_LOTS);
   yield;
   const structures = buildRoofscape(rng, lots, ROOF_STYLE);
+  yield;
+  structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

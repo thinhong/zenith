@@ -12,6 +12,7 @@ import {
 } from '@/world/lots';
 import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
+import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import { range, type Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
@@ -67,6 +68,7 @@ const PALETTE: EraPalette = {
   land: 0x7c9052,
   water: 0x4884a8,
   road: 0x9c8c6e,
+  pavement: 0xa89a7e,
   roof: TILE.sun,
   canopy: 0x4a7038,
   trunk: 0x584737,
@@ -75,6 +77,10 @@ const PALETTE: EraPalette = {
   courtyardChance: 0.62,
   // Village trees: a mango over the yard is as wide as the house.
   canopyScale: 1.55,
+  canopyRound: 0x568038,
+  roundShare: 0.55,
+  bush: 0x5c8440,
+  bushesPerTree: 0.55,
   // No street lighting in 1800.
   lamps: false,
   // Oil lamps, not the grid: a few dim windows, and most of the town dark.
@@ -129,6 +135,22 @@ const ROOF_STYLE: RoofStyle = {
   wingShare: 0.34,
   crowns: false,
   crownTint: [STONE],
+  chimney: { share: 0.12, colours: [0x9c8a72] },
+  // A flat roof in 1800 is a drying floor, not a plant room.
+  deckTop: { share: 0.4, colours: [0xb8a884, 0xa2986f] },
+};
+
+const STREET_STYLE: StreetStyle = {
+  // A compound wall round the yard is what a town of 1800 is made of.
+  wallShare: 0.6,
+  wallHeightM: 1.4,
+  wallColours: [0xa89778, 0x97886c, 0xb5a488],
+  // Handcarts left at the side of a lane, not parked vehicles.
+  parkedShare: 0.22,
+  parked: { lengthM: 1.7, widthM: 0.9, heightM: 0.8, colours: [0x8a7458, 0x76603f, 0x9b8461] },
+  // No poles: nothing in 1800 carries a wire.
+  poleShare: 0,
+  poleColour: 0x000000,
 };
 
 const CITADEL_LOTS: LotProfile = {
@@ -383,6 +405,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   // Every building gets a ridged tile roof with the eaves hanging past the
   // walls. Nothing in 1800 has a flat deck, a water tank or a crown.
   structures.push(...buildRoofscape(rng, all, ROOF_STYLE));
+  yield;
+  structures.push(...buildStreetscape(rng, roads, all, STREET_STYLE));
 
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }

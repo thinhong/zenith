@@ -27,6 +27,7 @@ import {
 } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { cloudShadow } from '@/world/atmosphere';
+import { setMaterialsXray } from '@/world/instanced';
 import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 
 /**
@@ -41,6 +42,13 @@ const WINDOW = {
   colM: 4.2,
   /** How much darker a pane is than its wall in daylight. */
   dayShade: 0.22,
+  /**
+   * The ground floor is glass, shutters and signs, not the render of the six
+   * storeys above it, so it takes its own tone. It is the band you read first
+   * when you come down to street level.
+   */
+  shopM: 3.6,
+  shopShade: 0.2,
   /** No windows in the ground floor or right under the roof. */
   skirtM: 2,
   parapetM: 1.2,
@@ -59,6 +67,8 @@ export interface Buildings {
   setDetail: (detail: number) => void;
   /** Fades the daytime window pattern, which aliases long before the lights do. */
   setFacade: (facade: number) => void;
+  /** Makes the walls see-through (ui/bar.ts, the X key). */
+  setXray: (on: boolean) => void;
   count: number;
 }
 
@@ -106,6 +116,7 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
     setNight: windows.setNight,
     setDetail: windows.setDetail,
     setFacade: windows.setFacade,
+    setXray: (on) => setMaterialsXray([windows.material], on),
     count,
   };
 }
@@ -246,6 +257,13 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
   const seed01 = fract(buildingSeed.mul(0.01));
   const paneStrength = float(WINDOW.dayShade).mul(seed01.mul(0.7).add(0.65));
   const shaded = float(1).sub(pane.mul(paneStrength).mul(facade).mul(float(1).sub(night)));
+  const shopfront = float(1).sub(
+    float(1)
+      .sub(step(WINDOW.shopM, heightM))
+      .mul(float(1).sub(step(0.5, abs(normalWorld.y))))
+      .mul(WINDOW.shopShade)
+      .mul(facade),
+  );
 
   const glow = vec3(1.0, 0.82, 0.48)
     .mul(paneY)
@@ -272,7 +290,7 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
   const rimColour = vec3(RIM.r, RIM.g, RIM.b).mul(rim).mul(detail);
 
   const material = new MeshLambertNodeMaterial();
-  material.colorNode = instanceColor.mul(shaded).mul(cloudShadow());
+  material.colorNode = instanceColor.mul(shaded).mul(shopfront).mul(cloudShadow());
   // three declares emissiveNode only on MeshStandardNodeMaterial, but
   // NodeMaterial.setupLighting() reads it on every node material.
   (material as MeshLambertNodeMaterial & { emissiveNode: unknown }).emissiveNode = glow.add(rimColour);

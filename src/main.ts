@@ -7,6 +7,7 @@ import { createBar } from '@/ui/bar';
 import { ERA_ORDER } from '@/world/eras';
 import { altitudeBand } from '@/state/altitude';
 import { readSettings } from '@/state/settings';
+import { wrapHour } from '@/state/clock';
 import { TERRAIN } from '@/world/terrain';
 
 async function main(): Promise<void> {
@@ -39,12 +40,30 @@ async function main(): Promise<void> {
       world.showEra(id);
       bar.refresh();
     },
+    hour: () => world.clock.hourOfDay,
+    paused: () => world.clock.paused,
+    onHour: (hour) => {
+      world.clock.hourOfDay = wrapHour(hour);
+    },
+    onPause: (paused) => {
+      world.clock.paused = paused;
+    },
+    xray: () => world.xray(),
+    onXray: (on) => {
+      world.setXray(on);
+    },
   });
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
       world.clock.paused = !world.clock.paused;
+      bar.refresh();
+      return;
+    }
+    if (e.code === 'KeyX') {
+      world.setXray(!world.xray());
+      bar.refresh();
       return;
     }
     const slot = Number(e.key);

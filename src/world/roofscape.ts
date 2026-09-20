@@ -34,6 +34,13 @@ export interface RoofStyle {
   wingShare: number;
   /** Whether tall buildings get a stepped crown and a mast. */
   crowns: boolean;
+  /** Chimneys on ridged roofs, and how often. */
+  chimney: { share: number; colours: readonly number[] };
+  /**
+   * Flat decks are not all bare tar. Some carry a garden, some a rack of
+   * panels, and which of those belongs to the era is the era's business.
+   */
+  deckTop: { share: number; colours: readonly number[] };
   /** Colours for a crown. Close to the walls, not a bright cap. */
   crownTint: readonly number[];
 }
@@ -49,6 +56,7 @@ const ROOFS = {
   parapetDropM: 0.6,
   /** Nothing is cluttered below this footprint, in metres. */
   clutterMinSideM: 9,
+  chimneyWidthM: 0.9,
   crownFromM: 40,
   /** Share of tall buildings that get one at all. */
   crownShare: 0.55,
@@ -75,6 +83,7 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
 
     if (pitched) {
       ridged(out, lot, style, shortM);
+      if (rng() < style.chimney.share) chimney(out, rng, lot, style, shortM);
     } else {
       flat(out, rng, lot, style, shortM);
     }
@@ -127,6 +136,22 @@ function flat(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: nu
     rotY: 0,
     colour: pick(style.deck, lot.jitter),
   });
+  // A garden, or a rack of panels, over part of the deck.
+  if (rng() < style.deckTop.share) {
+    const w = (lot.wM - inset * 2) * range(rng, 0.3, 0.62);
+    const d = (lot.dM - inset * 2) * range(rng, 0.3, 0.62);
+    out.push({
+      kind: 'flat',
+      x: lot.x + range(rng, -1, 1) * (lot.wM / 2 - inset - w / 2),
+      y: deckY + 0.08,
+      z: lot.z + range(rng, -1, 1) * (lot.dM / 2 - inset - d / 2),
+      wM: w,
+      hM: 1,
+      dM: d,
+      rotY: 0,
+      colour: pick(style.deckTop.colours, rng()),
+    });
+  }
   if (shortM < ROOFS.clutterMinSideM) return;
 
   // A stair housing, off to one side rather than in the middle.
@@ -160,6 +185,23 @@ function flat(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: nu
       colour: pick(style.clutter, rng()),
     });
   }
+}
+
+/** A stack at the ridge. One line on a roof, and a row of houses stops looking stamped. */
+function chimney(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: number): void {
+  const alongX = lot.wM >= lot.dM;
+  const along = (alongX ? lot.wM : lot.dM) * range(rng, -0.3, 0.3);
+  out.push({
+    kind: 'box',
+    x: lot.x + (alongX ? along : 0),
+    y: lot.heightM,
+    z: lot.z + (alongX ? 0 : along),
+    wM: ROOFS.chimneyWidthM,
+    hM: shortM * ROOFS.pitch + range(rng, 0.6, 1.4),
+    dM: ROOFS.chimneyWidthM,
+    rotY: 0,
+    colour: pick(style.chimney.colours, lot.jitter),
+  });
 }
 
 /**

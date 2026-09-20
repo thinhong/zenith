@@ -4,6 +4,7 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
+  IcosahedronGeometry,
   Group,
   InstancedMesh,
   Material,
@@ -49,6 +50,12 @@ export interface PropPalette {
   courtyardChance: number;
   /** Multiplies the canopy size. Village trees are wider than street trees. */
   canopyScale: number;
+  /** A second, rounder crown shape, and how many trees take it. */
+  canopyRound: number;
+  roundShare: number;
+  /** Shrubs under the trees, as a share of them. */
+  bush: number;
+  bushesPerTree: number;
   /** Street lamps belong to an era that has them. */
   lamps: boolean;
 }
@@ -63,7 +70,29 @@ export interface Props {
   lampCount: number;
 }
 
+/** A low round shrub under the trees, which is what fills a hedge line. */
+function collectBushes(rng: Rng, trees: readonly Placement[], perTree: number): Placement[] {
+  const bushes: Placement[] = [];
+  for (const tree of trees) {
+    if (rng() >= perTree) continue;
+    const angle = range(rng, 0, Math.PI * 2);
+    const reach = tree.radiusM * range(rng, 1.1, 2.4);
+    bushes.push({
+      x: tree.x + Math.cos(angle) * reach,
+      y: 0,
+      z: tree.z + Math.sin(angle) * reach,
+      radiusM: range(rng, 0.7, 1.6),
+      heightM: range(rng, 0.9, 1.8),
+      rotY: range(rng, 0, Math.PI * 2),
+      round: true,
+    });
+  }
+  return bushes;
+}
+
 interface Placement {
+  /** True if this one takes the rounder crown rather than the cone. */
+  round?: boolean;
   x: number;
   y: number;
   z: number;
@@ -76,6 +105,7 @@ interface Placement {
 export interface PropPlacements {
   trees: readonly Placement[];
   lamps: readonly Placement[];
+  bushes: readonly Placement[];
 }
 
 /**
@@ -89,9 +119,11 @@ export function collectProps(
   lots: readonly Lot[],
   palette: PropPalette,
 ): PropPlacements {
+  const trees = collectTrees(rng, terrain, graph, lots, palette);
   return {
-    trees: collectTrees(rng, terrain, graph, lots, palette),
+    trees,
     lamps: palette.lamps ? collectLamps(graph) : [],
+    bushes: collectBushes(rng, trees, palette.bushesPerTree),
   };
 }
 
@@ -108,6 +140,13 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
   trunkGeometry.translate(0, 0.5, 0);
   const canopyGeometry = new ConeGeometry(1, 1, 6);
   canopyGeometry.translate(0, 0.5, 0);
+  // A second crown shape, rounder and lower. One shape repeated four thousand
+  // times reads as a plantation whatever the sizes are.
+  const roundGeometry = new IcosahedronGeometry(0.5, 0);
+  roundGeometry.scale(1, 0.78, 1);
+  roundGeometry.translate(0, 0.5, 0);
+  const bushGeometry = new IcosahedronGeometry(0.5, 0);
+  bushGeometry.translate(0, 0.45, 0);
   const postGeometry = new CylinderGeometry(1, 1, 1, 3);
   postGeometry.translate(0, 0.5, 0);
   const headGeometry = new BoxGeometry(1, 1, 1);
@@ -186,6 +225,7 @@ function collectTrees(
       radiusM: range(rng, 2.2, 4) * palette.canopyScale,
       heightM: range(rng, 8, 13) * palette.canopyScale,
       rotY: range(rng, 0, Math.PI * 2),
+      round: rng() < palette.roundShare,
     });
   };
 

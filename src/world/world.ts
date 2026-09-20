@@ -41,7 +41,7 @@ import {
   type LotUse,
 } from '@/world/lots';
 import { collectProps, createProps, type Props } from '@/world/props';
-import { createRoadMesh } from '@/world/road-mesh';
+import { createRoads } from '@/world/road-mesh';
 import { mulberry32 } from '@/world/seed';
 import { createStructures } from '@/world/structures';
 import { advanceClouds } from '@/world/atmosphere';
@@ -68,6 +68,9 @@ export interface World {
   showEra: (id: EraId) => void;
   /** The era being built, if one is. The bar lights that stop while it waits. */
   pendingEra: () => EraId | null;
+  /** Whether the walls are see-through, so the people inside can be watched. */
+  xray: () => boolean;
+  setXray: (on: boolean) => void;
   update: (dtS: number, elapsedS: number, view: ViewState) => void;
   info: () => string;
 }
@@ -95,6 +98,7 @@ interface EraWorld {
   buildings: Buildings;
   props: Props;
   setRoadOpacity: (value: number) => void;
+  setXray: (on: boolean) => void;
 }
 
 export function createWorld({
@@ -150,7 +154,7 @@ export function createWorld({
     const group = new Group();
     group.name = `era-${era.id}`;
 
-    const roadMesh = createRoadMesh(layout.roads, era.palette.road);
+    const roads = createRoads(layout.roads, era.palette.road, era.palette.pavement);
     yield;
     const buildings = createBuildings(layout.lots, {
       colours: era.palette.building,
@@ -167,6 +171,10 @@ export function createWorld({
       lampOn: era.palette.lampOn,
       courtyardChance: era.palette.courtyardChance,
       canopyScale: era.palette.canopyScale,
+      canopyRound: era.palette.canopyRound,
+      roundShare: era.palette.roundShare,
+      bush: era.palette.bush,
+      bushesPerTree: era.palette.bushesPerTree,
       lamps: era.palette.lamps,
     };
     const placements = collectProps(
@@ -181,8 +189,9 @@ export function createWorld({
 
     yield;
 
-    group.add(roadMesh, buildings.group, props.group);
-    if (layout.structures.length > 0) group.add(createStructures(layout.structures));
+    const structures = layout.structures.length > 0 ? createStructures(layout.structures) : null;
+    group.add(roads.group, buildings.group, props.group);
+    if (structures) group.add(structures.group);
     group.traverse((object) => {
       object.castShadow = true;
       object.receiveShadow = true;
@@ -195,7 +204,6 @@ export function createWorld({
     yield;
     const lotNodes = lotRoadNodes(layout.lots, layout.roads);
 
-    const material = roadMesh.material;
     return {
       era,
       layout,
@@ -205,8 +213,10 @@ export function createWorld({
       lotIndex,
       buildings,
       props,
-      setRoadOpacity: (value) => {
-        material.opacity = value;
+      setRoadOpacity: roads.setOpacity,
+      setXray: (on) => {
+        buildings.setXray(on);
+        structures?.setXray(on);
       },
     };
   }
@@ -219,6 +229,9 @@ export function createWorld({
       if (step.done) return step.value;
     }
   }
+
+  /** Whether the walls are see-through. Survives a change of era. */
+  let xray = false;
 
   let current = buildEraWorld(first);
   let leaving: EraWorld | null = null;
@@ -289,6 +302,7 @@ export function createWorld({
     if (!step.done) return;
 
     const built = step.value;
+    built.setXray(xray);
     if (leaving) {
       // A second change while one is still running: drop the one already sinking.
       scene.remove(leaving.group);
@@ -334,6 +348,13 @@ export function createWorld({
     eras,
     showEra,
     pendingEra: () => pending?.id ?? null,
+    xray: () => xray,
+    setXray: (on) => {
+      xray = on;
+      current.setXray(on);
+      leaving?.setXray(on);
+      people.setXray(on);
+    },
     update: (dtS, elapsedS, view) => {
       const altitudeM = view.altitudeM;
       advanceClock(clock, dtS);

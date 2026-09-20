@@ -32,7 +32,7 @@ export const GROUND_PALETTE = {
  * The camera's near plane grows with altitude (core/camera.ts) so these small
  * gaps stay resolvable from 6 km up.
  */
-export const LAYER_Y = { ground: 0, water: 0.3, road: 0.6 } as const;
+export const LAYER_Y = { ground: 0, water: 0.3, pavement: 0.5, road: 0.6 } as const;
 
 /** A colour the era can rewrite, read by a material's colour node. */
 function colourUniform(value: number | Color) {

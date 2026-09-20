@@ -1,4 +1,4 @@
-import { Color, InstancedMesh, Matrix4, PlaneGeometry, Quaternion, Vector3 } from 'three';
+import { Color, Group, InstancedMesh, Matrix4, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { uniform } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { cloudShadow } from '@/world/atmosphere';
@@ -17,9 +17,49 @@ function roadMaterial(colour: number): MeshLambertNodeMaterial {
   return material;
 }
 
-export function createRoadMesh(
+/**
+ * How far the pavement reaches past the kerb, in metres. It is drawn as one
+ * wider quad under the road rather than as two strips beside it, so junctions
+ * and bridges take care of themselves.
+ */
+export const PAVEMENT_M = 2.2;
+
+export interface Roads {
+  group: Group;
+  /** Both layers fade together when one era gives way to the next. */
+  setOpacity: (value: number) => void;
+}
+
+/**
+ * The carriageway, and a pavement under it reaching a little further out.
+ *
+ * Drawing the pavement as one wider quad underneath, rather than as two strips
+ * beside the road, means junctions, bridges and the ring road all take care of
+ * themselves: whatever shape the carriageway makes, the pavement makes the
+ * same shape two metres larger. From above that pale border is most of what
+ * makes a road read as a street rather than as a line on a map.
+ */
+export function createRoads(graph: RoadGraph, colour: number, pavementColour: number): Roads {
+  const group = new Group();
+  group.name = 'roads';
+  const pavement = layer(graph, pavementColour, PAVEMENT_M, LAYER_Y.pavement, 'pavement');
+  const road = layer(graph, colour, 0, LAYER_Y.road, 'carriageway');
+  group.add(pavement, road);
+  return {
+    group,
+    setOpacity: (value) => {
+      pavement.material.opacity = value;
+      road.material.opacity = value;
+    },
+  };
+}
+
+function layer(
   graph: RoadGraph,
   colour: number,
+  growM: number,
+  y: number,
+  name: string,
 ): InstancedMesh<PlaneGeometry, MeshLambertNodeMaterial> {
   const geometry = new PlaneGeometry(1, 1);
   geometry.rotateX(-Math.PI / 2);
@@ -31,7 +71,7 @@ export function createRoadMesh(
     roadMaterial(colour),
     Math.max(count, 1),
   );
-  mesh.name = 'roads';
+  mesh.name = name;
   mesh.count = count;
 
   const matrix = new Matrix4();
@@ -49,11 +89,11 @@ export function createRoadMesh(
     const dz = b.z - a.z;
     const length = Math.hypot(dx, dz);
     if (length < 1e-6) continue;
-    position.set((a.x + b.x) / 2, LAYER_Y.road, (a.z + b.z) / 2);
+    position.set((a.x + b.x) / 2, y, (a.z + b.z) / 2);
     // Local +x runs along the edge after a Y rotation of atan2(-dz, dx).
     quaternion.setFromAxisAngle(up, Math.atan2(-dz, dx));
     // Overrun by the road width so the quad reaches under the junction square.
-    scale.set(length + edge.widthM, 1, edge.widthM);
+    scale.set(length + edge.widthM + growM * 2, 1, edge.widthM + growM * 2);
     mesh.setMatrixAt(i++, matrix.compose(position, quaternion, scale));
   }
 
@@ -66,8 +106,8 @@ export function createRoadMesh(
   for (const node of graph.nodes) {
     const width = junctionWidth[node.id] ?? 0;
     if (width <= 0) continue;
-    position.set(node.x, LAYER_Y.road, node.z);
-    scale.set(width, 1, width);
+    position.set(node.x, y, node.z);
+    scale.set(width + growM * 2, 1, width + growM * 2);
     mesh.setMatrixAt(i++, matrix.compose(position, quaternion, scale));
   }
 

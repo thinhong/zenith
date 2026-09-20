@@ -79,6 +79,14 @@ const PEOPLE = {
   dotSizePx: 4.5,
   /** How strongly a figure shows through whatever is hiding it. */
   ghostOpacity: 0.55,
+  /**
+   * How much larger a figure is drawn while the walls are see-through. A
+   * person is 1.7 m and a room is four, so at true size they are a speck
+   * inside the building and the x-ray shows an empty shell. This is the one
+   * place the world is knowingly drawn out of scale, because the mode exists
+   * to be read rather than to be believed.
+   */
+  xrayScale: 2.4,
 } as const;
 
 export interface PeopleStats {
@@ -125,6 +133,8 @@ export interface People {
    * in one frame is exactly the hitch the era change is trying to avoid.
    */
   reseat: (next: ReseatOptions) => void;
+  /** Draws the figures larger, for the see-through view. */
+  setXray: (on: boolean) => void;
 }
 
 export interface PeopleOptions {
@@ -227,6 +237,7 @@ export function createPeople(options: PeopleOptions): People {
   group.add(dots);
 
   const stats: PeopleStats = { updateMs: 0, outside: 0, walking: 0, drawn: 0 };
+  let figureScale = 1;
   const pending: number[] = [];
   let frame = 0;
   let elapsedS = 0;
@@ -351,7 +362,17 @@ export function createPeople(options: PeopleOptions): People {
           : 0;
       const scaleY = state === STATE.sitting ? PEOPLE.sitScale : 1;
       // Local +x is the figure's front, so the heading is negated (see instanced.ts).
-      writeInstanceMatrix(figureMatrices, slot, x, bob, z, -(pool.heading[i] ?? 0), 1, scaleY, 1);
+      writeInstanceMatrix(
+        figureMatrices,
+        slot,
+        x,
+        bob,
+        z,
+        -(pool.heading[i] ?? 0),
+        figureScale,
+        scaleY * figureScale,
+        figureScale,
+      );
 
       const source = (pool.clothes[i] ?? 0) * 3;
       figureColors[slot * 3] = palette[source] ?? 0.6;
@@ -424,6 +445,9 @@ export function createPeople(options: PeopleOptions): People {
     },
     stats,
     nearby,
+    setXray: (on) => {
+      figureScale = on ? PEOPLE.xrayScale : 1;
+    },
     reseat: (next) => {
       graph = next.graph;
       lots = next.lots;

@@ -54,6 +54,51 @@
       .stop:hover:not(.unbuilt) { color: #dfe4ea; background: rgba(255, 255, 255, 0.06); }
       .stop.here { color: #f0efe6; background: rgba(255, 255, 255, 0.11); }
       .stop.unbuilt { opacity: 0.3; cursor: default; }
+      .clock { align-items: center; gap: 8px; padding: 4px 10px; height: 40px; box-sizing: border-box; }
+      .icon {
+        width: 26px; height: 26px;
+        border: 0; border-radius: 13px;
+        background: transparent;
+        color: #9aa3ad;
+        font: inherit; font-size: 12px; line-height: 1;
+        cursor: pointer;
+      }
+      .icon:hover, .icon.here { color: #f0efe6; background: rgba(255, 255, 255, 0.11); }
+      .hours {
+        -webkit-appearance: none; appearance: none;
+        width: 132px; height: 3px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.22);
+        cursor: pointer;
+      }
+      .hours::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 13px; height: 13px;
+        border: 0; border-radius: 7px;
+        background: #f0efe6;
+        cursor: pointer;
+      }
+      .hours::-moz-range-thumb {
+        width: 13px; height: 13px;
+        border: 0; border-radius: 7px;
+        background: #f0efe6;
+        cursor: pointer;
+      }
+      .readout {
+        min-width: 38px;
+        color: #cfd6de;
+        font-size: 11px; font-variant-numeric: tabular-nums;
+      }
+      #xray {
+        width: 34px; height: 34px;
+        border: 0; border-radius: 17px;
+        background: rgba(10, 14, 20, 0.55);
+        color: #9aa3ad;
+        font: inherit; font-size: 13px; font-weight: 600;
+        cursor: pointer;
+      }
+      #xray:hover { color: #dfe4ea; }
+      #xray.here { color: #0d1218; background: #d9dee4; }
       #help {
         width: 34px; height: 34px;
         border: 0; border-radius: 17px;

@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v8, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v9, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -155,7 +155,7 @@ src/
     audio.ts               AudioSystem: context, gesture unlock, wind, murmur, accents
   ui/
     hud.ts                 debug overlay, H to toggle (done)
-    bar.ts                 bottom bar: era dial, vantage buttons, mute, help; auto-hide (era dial and help done)
+    bar.ts                 bottom bar: era dial, hour slider, x-ray, help; auto-hide (done; vantage buttons and mute are M4)
     lifecard.ts            the three-line card for a followed person
   content/                 (optional) shared palettes and names
 public/
@@ -258,6 +258,10 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   - **Cloud shadows** drift over the whole world (`world/atmosphere.ts`), four sine waves in the fragment stage. Note the conversion: a sine repeats every 2*PI, so `CLOUDS.spanM` is turned into a frequency rather than used as a divisor. Getting that wrong made every cloud ten kilometres wide, which is wider than any frame, so the feature looked broken.
   - **The land takes two colours**, the ground a town stands on and the country beyond it, and mixes between them by distance. What shows between buildings in a real city is yard, path and tarmac; painting the whole disc green was the single largest thing making this look like a model railway. The country half also carries a patchwork of fields.
   - **Windows are visible by day**, as panes slightly darker than their wall, varied per building. A blank wall is what makes a rendered building read as a block. It fades out by 520 m (`DETAIL.facade`): a floor is 3.6 m, so higher than that it is about one pixel and a hard pattern sampled at that rate turns into black moire.
+- **Detail is a count, not a shape.** Everything is still boxes, prisms and quads; what makes a place look made rather than generated is how many of them there are and what they stand on. Three modules carry it, all pure, all drawn through `world/structures.ts`:
+  - `roofscape.ts`, what is on a roof: the roof itself, a deck inside its own parapet, a stair housing, a water tank, a chimney at the ridge, a garden or a rack of panels, an off-centre plant room and sometimes a mast.
+  - `streetscape.ts`, what is on the ground: the wall round a yard, usually with a gap for the gate; the vehicles left at the kerb; a pole beside a lane. The buildings were never why the place looked bare. It was the ground between them.
+  - `road-mesh.ts`, the pavement: one quad wider than the carriageway, drawn under it, so junctions, bridges and the ring road all take care of themselves. From above that pale border is most of what makes a road read as a street rather than as a line on a map.
 - **Roofs.** Nothing is a flat-topped box. `world/roofscape.ts` turns each lot into a ridged roof, or a deck set inside and below its own walls so the wall reads as a parapet, with a stair housing, a water tank and, on the tall ones, an off-centre plant room. Some low buildings grow a wing, so a footprint is not always one rectangle. A city seen from above is mostly roofs; without this it reads as a bar chart.
 - **Fog.** Always on, and it is the aerial perspective as much as the edge of the world. Colour equals the sky horizon so the world dissolves instead of ending; near and far scale with altitude so the far part of any frame reads as distance.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
@@ -280,6 +284,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   | Timber and doors | `#8e3b2e` | derived |
 
   Since the owner then asked for a realistic look (20 Sep 2026), these sampled values have been pulled down in saturation: the tile runs `#d9985c` to `#a96c3c` with grey slate and dark thatch mixed in, the stone is `#c9c3ae`, and the violet is now `#8a7e9c`, muted towards a weathered stone that still reads as violet. The violet is still the thing that makes the picture read, so it has not been drifted to brick red; if the realism should win outright, that is the next value to change. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
+- **The see-through view.** `X` makes walls, roofs and paving see-through, so the people inside can be watched. Depth writing goes off with the opacity, or a transparent wall still fills the depth buffer and goes on hiding what is behind it. The figures are drawn 2.4 times life size while it is on: a person is 1.7 m and a room is four, so at true size the x-ray shows an empty shell. That is the one place the world is knowingly out of scale, because the mode exists to be read rather than to be believed.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -501,6 +506,8 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | One small settlement, radius 460 m, not a city | owner's call. Nothing is culled, so the radius multiplies the cost of every frame; and at this size the detail budget per hectare is five times what it was |
 | 2026-09-20 | Everybody is drawn, indoors and out | the crowd was invisible while its thoughts floated over the roofs. Indoors people are placed inside their own building, a second pass shows whoever is hidden, and the aerial dots are not depth-tested |
 | 2026-09-20 | Rim light rather than an outline | a warm edge on faces turning away from the camera gives the silhouette an illustrated edge and costs no pass. A world-space outline cannot work here: one thick enough to read at 400 m is a border at 12 m, and the zoom range is the point. A real outline needs a screen-space pass |
+| 2026-09-20 | The hour is a slider on the bar, not only a URL parameter | the light is half of what the place looks like, and waiting fifteen real minutes to see dusk is not a way to look at it |
+| 2026-09-20 | Figures are drawn 2.4x life size under the x-ray | at true size the see-through view shows an empty shell, which defeats the only reason the mode exists |
 | 2026-09-20 | Look: painted daylight (owner's third and current call) | the palettes have now been photographic once and painted twice. The structural work (roofs, density, crowd, shadows, haze, windows) is the same either way; only the palette tables and the sky keyframes change, and the photographic set is in the history if it is wanted back |
 
 ## 10. Open questions (decide before the milestone that needs them)

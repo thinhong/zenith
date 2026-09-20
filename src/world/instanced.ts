@@ -1,4 +1,11 @@
-import { Color, DynamicDrawUsage, GreaterDepth, InstancedBufferAttribute, InstancedMesh } from 'three';
+import {
+  Color,
+  DynamicDrawUsage,
+  GreaterDepth,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  type Material,
+} from 'three';
 import { attribute, varying } from 'three/tsl';
 import { cloudShadow } from '@/world/atmosphere';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial } from 'three/webgpu';
@@ -40,6 +47,27 @@ export function createGhostMaterial(opacity: number): MeshBasicNodeMaterial {
   material.depthWrite = false;
   material.depthFunc = GreaterDepth;
   return material;
+}
+
+/**
+ * How see-through a wall or a roof is when the x-ray is on. Low enough that
+ * the people inside read plainly, high enough that the building is still a
+ * building rather than a smear.
+ */
+export const XRAY_OPACITY = 0.19;
+
+/**
+ * Turns a set of materials see-through, or back. Depth writing goes off with
+ * it: without that a transparent wall still fills the depth buffer and goes on
+ * hiding everything behind it, which is the whole thing the x-ray is for.
+ */
+export function setMaterialsXray(materials: readonly Material[], on: boolean): void {
+  for (const material of materials) {
+    material.transparent = on;
+    material.opacity = on ? XRAY_OPACITY : 1;
+    material.depthWrite = !on;
+    material.needsUpdate = true;
+  }
 }
 
 /**

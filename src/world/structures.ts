@@ -6,6 +6,7 @@ import {
   CylinderGeometry,
   Group,
   InstancedMesh,
+  type Material,
   PlaneGeometry,
 } from 'three';
 import type { Structure, StructureKind } from '@/world/eras';
@@ -13,6 +14,7 @@ import {
   attachInstanceColors,
   createInstanceColorMaterial,
   paletteToLinear,
+  setMaterialsXray,
   writeInstanceMatrix,
 } from '@/world/instanced';
 
@@ -23,18 +25,30 @@ import {
  *
  * Nothing here moves, so the matrices are written once.
  */
-export function createStructures(structures: readonly Structure[]): Group {
+export interface Structures {
+  group: Group;
+  /** Makes the walls, roofs and paving see-through (ui/bar.ts, the X key). */
+  setXray: (on: boolean) => void;
+}
+
+export function createStructures(structures: readonly Structure[]): Structures {
   const group = new Group();
   group.name = 'structures';
+  const materials: Material[] = [];
   for (const kind of ['flat', 'box', 'roof', 'gable', 'tank'] as const) {
     const mine = structures.filter((structure) => structure.kind === kind);
     if (mine.length === 0) continue;
-    group.add(meshFor(kind, mine));
+    const mesh = meshFor(kind, mine);
+    materials.push(mesh.material);
+    group.add(mesh);
   }
-  return group;
+  return { group, setXray: (on) => setMaterialsXray(materials, on) };
 }
 
-function meshFor(kind: StructureKind, structures: readonly Structure[]): InstancedMesh {
+function meshFor(
+  kind: StructureKind,
+  structures: readonly Structure[],
+): InstancedMesh<BufferGeometry, Material> {
   const mesh = new InstancedMesh(geometryFor(kind), createInstanceColorMaterial(true), structures.length);
   mesh.name = `structures-${kind}`;
   mesh.frustumCulled = false;
