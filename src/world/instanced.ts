@@ -1,7 +1,7 @@
-import { Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh } from 'three';
+import { Color, DynamicDrawUsage, GreaterDepth, InstancedBufferAttribute, InstancedMesh } from 'three';
 import { attribute, varying } from 'three/tsl';
 import { cloudShadow } from '@/world/atmosphere';
-import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshLambertNodeMaterial } from 'three/webgpu';
 
 /**
  * Shared bits for the crowds. Everything that repeats more than about twenty
@@ -19,6 +19,26 @@ export function createInstanceColorMaterial(clouds = false): MeshLambertNodeMate
   const material = new MeshLambertNodeMaterial();
   const colour = varying(attribute('iColor', 'vec3'));
   material.colorNode = clouds ? colour.mul(cloudShadow()) : colour;
+  return material;
+}
+
+/**
+ * The same instance colour, drawn only where something else is already in
+ * front of it: the parts of a crowd a wall or a roof is hiding.
+ *
+ * This is what lets the town be watched as an anthill. A person who goes
+ * indoors, or who walks behind a building, used to disappear while their
+ * thought went on floating over the roof, so the place showed thoughts with
+ * nobody attached to them. Unlit on purpose: a Lambert figure seen through a
+ * roof is in shadow, and comes out too dark to see.
+ */
+export function createGhostMaterial(opacity: number): MeshBasicNodeMaterial {
+  const material = new MeshBasicNodeMaterial();
+  material.colorNode = varying(attribute('iColor', 'vec3'));
+  material.transparent = true;
+  material.opacity = opacity;
+  material.depthWrite = false;
+  material.depthFunc = GreaterDepth;
   return material;
 }
 

@@ -100,7 +100,7 @@ export function fogRange(altitudeM: number): { nearM: number; farM: number } {
  */
 export const AGENTS = {
   /** Below this, people are walking figures. Above it they are dots. */
-  figuresMaxM: 320,
+  figuresMaxM: 300,
   /** Above this, people are not drawn at all. */
   peopleDotsMaxM: 1250,
   /** Below this, vehicles are boxes. Above it they are dots. */

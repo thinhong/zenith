@@ -35,6 +35,7 @@ import {
 import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import {
   attachInstanceColors,
+  createGhostMaterial,
   createInstanceColorMaterial,
   markColorsChanged,
   markDynamic,
@@ -56,7 +57,7 @@ import { range, type Rng } from '@/world/seed';
  */
 const PEOPLE = {
   /** Most figures drawn at once. Only those near the look-at point are. */
-  maxFigures: 1400,
+  maxFigures: 2400,
   /** How many routes may be worked out in one frame. */
   pathsPerFrame: 12,
   /** How often a person reconsiders where they should be, in seconds. */
@@ -69,7 +70,15 @@ const PEOPLE = {
   heightM: 1.7,
   /** How far across a lot people spread once they arrive. */
   spread: { market: 0.18, park: 0.38, temple: 0.22 },
-  dotSizePx: 2.6,
+  /**
+   * A person is 1.7 m tall, which past about 300 m is under a pixel, so above
+   * that they are drawn as dots instead. The dots are what the aerial view is
+   * made of, so they are a little larger than life and carry the person's own
+   * clothing colour: a single pale grey reads as dust on the roofs.
+   */
+  dotSizePx: 4.5,
+  /** How strongly a figure shows through whatever is hiding it. */
+  ghostOpacity: 0.55,
 } as const;
 
 export interface PeopleStats {
@@ -108,7 +117,8 @@ export interface People {
   stats: PeopleStats;
   update: (dtS: number, hourOfDay: number, view: ViewState) => void;
   /** The nearest people who are out of doors, nearest first. */
-  nearbyOutside: (x: number, z: number, radiusM: number, max: number) => NearbyPerson[];
+  /** The people nearest a point, indoors or out. Thoughts are picked from these. */
+  nearby: (x: number, z: number, radiusM: number, max: number) => NearbyPerson[];
   /**
    * Moves the whole population onto a different era's layout, in place. The
    * pool and its buffers are kept, because building four thousand people again
@@ -161,7 +171,8 @@ export function createPeople(options: PeopleOptions): People {
   const group = new Group();
   group.name = 'people';
 
-  const figures = new InstancedMesh(figureGeometry(), createInstanceColorMaterial(), PEOPLE.maxFigures);
+  const geometry = figureGeometry();
+  const figures = new InstancedMesh(geometry, createInstanceColorMaterial(), PEOPLE.maxFigures);
   figures.name = 'people-figures';
   figures.count = 0;
   figures.frustumCulled = false;
@@ -173,22 +184,46 @@ export function createPeople(options: PeopleOptions): People {
   const figureMatrices = figures.instanceMatrix.array as Float32Array;
   group.add(figures);
 
+  // The same people again, showing through whatever hides them. It shares the
+  // geometry, so it shares the colour attribute, and it is handed the same
+  // matrix buffer rather than a copy of it: one extra draw call and no extra
+  // work per frame.
+  const ghosts = new InstancedMesh(geometry, createGhostMaterial(PEOPLE.ghostOpacity), PEOPLE.maxFigures);
+  ghosts.name = 'people-ghosts';
+  ghosts.count = 0;
+  ghosts.frustumCulled = false;
+  ghosts.instanceMatrix = figures.instanceMatrix;
+  ghosts.renderOrder = 2;
+  group.add(ghosts);
+
   const dotPositions = new Float32Array(pool.capacity * 3);
+  const dotTints = new Float32Array(pool.capacity * 3);
   const dotGeometry = new BufferGeometry();
   const dotAttribute = new BufferAttribute(dotPositions, 3);
+  const dotColorAttribute = new BufferAttribute(dotTints, 3);
   dotAttribute.setUsage(DynamicDrawUsage);
+  dotColorAttribute.setUsage(DynamicDrawUsage);
   dotGeometry.setAttribute('position', dotAttribute);
+  dotGeometry.setAttribute('color', dotColorAttribute);
   dotGeometry.setDrawRange(0, 0);
   const dots = new Points(
     dotGeometry,
     new PointsMaterial({
-      color: new Color(0xd2cdc2),
+      color: new Color(0xffffff),
+      vertexColors: true,
       size: PEOPLE.dotSizePx,
       sizeAttenuation: false,
+      // Never hidden. From up here a person is one pixel and a roof is a
+      // hundred, so depth-testing the dots meant the whole town looked empty
+      // while four thousand people moved about under it. This is the view the
+      // piece is named for: the place as an anthill.
+      depthTest: false,
+      depthWrite: false,
     }),
   );
   dots.name = 'people-dots';
   dots.frustumCulled = false;
+  dots.renderOrder = 3;
   group.add(dots);
 
   const stats: PeopleStats = { updateMs: 0, outside: 0, walking: 0, drawn: 0 };
@@ -230,9 +265,14 @@ export function createPeople(options: PeopleOptions): People {
       return;
     }
     if (isIndoors(use)) {
-      // Through the door and out of sight until the schedule sends them out.
+      // Through the door, and then somewhere of their own inside the building
+      // rather than all standing on the same spot at its centre. They are
+      // still drawn: the ghost pass shows them through the walls.
+      const phase = pool.phase[index] ?? 0;
+      const acrossM = (lot.wM * 0.34) * (fract(phase * 3.77) * 2 - 1);
+      const alongM = (lot.dM * 0.34) * (fract(phase * 7.13) * 2 - 1);
       pool.state[index] = STATE.inside;
-      placeAgent(pool, index, lot.x, lot.z);
+      placeAgent(pool, index, lot.x + acrossM, lot.z + alongM);
       return;
     }
     const phase = pool.phase[index] ?? 0;
@@ -299,7 +339,6 @@ export function createPeople(options: PeopleOptions): People {
     let slot = 0;
     for (let i = 0; i < pool.count && slot < PEOPLE.maxFigures; i++) {
       const state = pool.state[i] ?? 0;
-      if (state === STATE.inside) continue;
       const x = agentX(pool, i);
       const z = agentZ(pool, i);
       const dx = x - view.targetX;
@@ -321,6 +360,7 @@ export function createPeople(options: PeopleOptions): People {
       slot++;
     }
     figures.count = slot;
+    ghosts.count = slot;
     figures.instanceMatrix.needsUpdate = true;
     markColorsChanged(figures);
     stats.drawn = slot;
@@ -329,23 +369,29 @@ export function createPeople(options: PeopleOptions): People {
   function drawDots(): void {
     let written = 0;
     for (let i = 0; i < pool.count; i++) {
-      if ((pool.state[i] ?? 0) === STATE.inside) continue;
       dotPositions[written * 3] = agentX(pool, i);
       dotPositions[written * 3 + 1] = 1;
       dotPositions[written * 3 + 2] = agentZ(pool, i);
+      const source = (pool.clothes[i] ?? 0) * 3;
+      dotTints[written * 3] = palette[source] ?? 0.6;
+      dotTints[written * 3 + 1] = palette[source + 1] ?? 0.6;
+      dotTints[written * 3 + 2] = palette[source + 2] ?? 0.6;
       written++;
     }
     dotGeometry.setDrawRange(0, written);
     dotAttribute.needsUpdate = true;
+    dotColorAttribute.needsUpdate = true;
     stats.drawn = written;
   }
 
-  function nearbyOutside(x: number, z: number, radiusM: number, max: number): NearbyPerson[] {
+  function nearby(x: number, z: number, radiusM: number, max: number): NearbyPerson[] {
     const found: NearbyPerson[] = [];
     const limitSquared = radiusM * radiusM;
     for (let i = 0; i < pool.count; i++) {
       const state = pool.state[i] ?? 0;
-      if (state === STATE.inside) continue;
+      // Indoors counts. A thought from inside a house is the better half of
+      // them, and leaving those people out is what put thought pills over
+      // roofs with nobody underneath.
       const px = agentX(pool, i);
       const pz = agentZ(pool, i);
       const dx = px - x;
@@ -377,7 +423,7 @@ export function createPeople(options: PeopleOptions): People {
       return pool.count;
     },
     stats,
-    nearbyOutside,
+    nearby,
     reseat: (next) => {
       graph = next.graph;
       lots = next.lots;
@@ -407,6 +453,7 @@ export function createPeople(options: PeopleOptions): People {
       const showFigures = view.altitudeM < AGENTS.figuresMaxM;
       const showDots = !showFigures && view.altitudeM < AGENTS.peopleDotsMaxM;
       figures.visible = showFigures;
+      ghosts.visible = showFigures;
       dots.visible = showDots;
       if (showFigures) drawFigures(view);
       else if (showDots) drawDots();

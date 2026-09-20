@@ -92,7 +92,7 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
         return;
       }
 
-      const nearby = people.nearbyOutside(
+      const nearby = people.nearby(
         view.targetX,
         view.targetZ,
         THOUGHTS.radiusM,
