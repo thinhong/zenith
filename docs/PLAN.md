@@ -174,6 +174,9 @@ src/
     traffic.ts             three.js: vehicles on the road graph, boxes and points (done)
     figure.ts              three.js: the geometry of one person, about 180 triangles (done)
     workplaces.ts          pure: how many desks a building has, and who gets them (done)
+    hunt.ts                pure: what happens when a hero and a beast notice each other (done)
+    monsters.ts            three.js: imps, beasts and heroes, and the hunt (done)
+    monster-shapes.ts      three.js: the geometry of the three kinds of body (done)
   thoughts/
     content.ts             pure: thought texts by era and by place, data only (done)
     select.ts              pure: who is thinking out loud, and for how long (done)
@@ -511,6 +514,34 @@ Acceptance:
 - From satellite height each era is recognisable at a glance by its shape and colour. **Holds for the two built eras: the citadel is an orange grain inside a violet square, the modern city is grey with a dense centre.**
 - People's thoughts change with the era but stay the same kind of worry (a farmer worries about rain, a clerk about the report). **Done, and a few worries deliberately recur in both sets, which is the point of the piece.**
 
+### M5b. Wyrmrest, the mythic age (done, 20 Sep 2026)
+
+Goal: one world that is not history, in place of the two eras that were planned and never built.
+
+On the owner's call, 1500 Fields and 1930 Colonial are given up and their two slots become one: a western high-fantasy age before all the others, leftmost on the dial and labelled by a word rather than a year, because it does not have one and pretending otherwise would be the only false note on the dial. Four finished places beat five with two dark stops, which is the same call that made the settlements smaller and more detailed.
+
+**The rule it is built to is the same as every other era's: the magic is in the nouns.** Nobody in Wyrmrest is awed by their own world. A dragon asleep under the hill is a fact of the local geography, the way a river is, and the people walking to market are thinking about the rent, the child, and the knee that hurts in the cold. Several of its thoughts are word for word the ones from 1800 and 2020, which is the whole point of the piece. Nobody narrates the magic, nobody explains its rules, and nobody says anything a person would not say about a wolf.
+
+What makes it read as this and not as the citadel:
+
+- **The wall is not straight.** A closed curve with a slow wobble in it at three and five lobes, with drum towers at intervals and three gates. A square wall is an imperial one; this is a wall built by people who put it where the digging was easiest. Two wavenumbers rather than one, or it reads as an egg.
+- **The roofs are steep.** `RoofStyle.pitch` is 0.78 against the tropical 0.34, which is most of what separates a northern town from a southern one: the same house plan under the two roofs reads as two climates. The pitch used to be a module constant; it is the era's business now.
+- **The keep stands apart and looks down**, square, on a motte, with four turrets and their caps.
+- **Half-timbering**, which the facade kit already knew how to draw: dark ribs one storey tall on lime-washed daub is what the citadel's verandah posts are, in another century.
+- **Only the three tracks out of the gates** survive outside the wall. The road builder covers the whole disc, and a chequerboard of lanes through empty fields is a thing no age before surveying ever had.
+
+**The dragon** (`wyrmStructures`) is landscape, not an agent: geometry laid once, costing nothing per frame. From the roof band it is a long low ridge with a bend in it that anyone would take for a hill. From satellite height the bend resolves into coils, the ridge into a spine of plates, the rounded end into a head, and the two banks at the shoulders into folded wings. That order is the whole point. A monster you are told about is set dressing; one you work out for yourself, from a shape you had stopped looking at, is what the place is named after. So there is no glow and no marker, and the town ignores it, because you do not point at the hill you grew up beside. Folded wings rather than spread ones, because a spread wing is a creature in flight and this one has not moved in a very long time.
+
+**What lives there** (`agents/monsters.ts`), split by where it is rather than by what it is, because from four hundred metres that is the only part a viewer can read:
+
+- **Imps** on the lanes in town, walking the road graph node to node, so they never cross a wall or stand in anybody's parlour.
+- **Beasts** on the open ground outside, which is why the wall is there.
+- **Heroes** out on the same ground looking for them.
+
+A hero who gets within sight of a beast closes on it, fights it for a few seconds, and the beast breaks off and runs. The rules are in `agents/hunt.ts`: four states, one timer, pure and tested. There is deliberately no health, no damage and no winner, because the piece is not a game and a fight it could lose would change what the whole thing is about. What a viewer sees from above is two shapes closing, striking at each other three times, and one of them going home, and that reads as a fight. Anything more would only exist in numbers nobody is shown.
+
+The first attempt had 46 beasts and 26 heroes over a ring of more than a square kilometre, which is one creature every hundred metres: the ground looked empty and the hunt never happened in shot. They are cheap next to twelve thousand people, so there are enough of them now to meet, in a band just outside the wall where framing the town puts them in view.
+
 ### M6. Souls
 
 Goal: follow one small light from one life to the next.
@@ -623,6 +654,10 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-20 | Every era has the same population | 12,000 in 2020 against 8,000 in 1800 emptied the streets on a change of era, which reads as the simulation faltering rather than as a different century |
 | 2026-09-20 | Thoughts are picked from around the camera, not around its look-at point | the camera looks down at a slant, so a ring drawn around the target reaches past the people in front of the viewer and picks up the ones behind them |
 | 2026-09-20 | 1500 Fields and 1930 Colonial are given up for one fantasy world | owner's call. Four finished places beat five with two dark stops, which is the same call that made the settlements smaller and more detailed |
+| 2026-09-20 | Wyrmrest is western high fantasy, and sits before all the others | owner's call on all four questions: the flavour, the placement, all three kinds of monster with heroes fighting them, and one world rather than two |
+| 2026-09-20 | The magic is in the nouns, the same rule every era follows | nobody is awed by the world they grew up in. A dragon under the hill is local geography, and the people are still thinking about the rent |
+| 2026-09-20 | The dragon is landscape, not an agent, and is never pointed at | a monster you are told about is set dressing; one you work out for yourself from a ridge you had stopped looking at is what the place is named after |
+| 2026-09-20 | A fight has no health, no damage and no winner | the piece is not a game. Two shapes closing, striking, and one going home reads as a fight; anything more exists only in numbers nobody is shown |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

@@ -12,6 +12,7 @@ import {
   type Object3D,
 } from 'three';
 import { createPeople, type People } from '@/agents/people';
+import { createMonsters, type Monsters } from '@/agents/monsters';
 import { createTraffic, type Traffic } from '@/agents/traffic';
 import { ALTITUDE, DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
@@ -373,6 +374,28 @@ export function createWorld({
   });
   scene.add(people.group);
 
+  /**
+   * Only the mythic age has anything living in it besides people, so this is
+   * null the rest of the time and built and thrown away with the era, the
+   * same as the traffic is.
+   */
+  let monsters: Monsters | null = null;
+  function buildMonsters(): void {
+    if (monsters) {
+      scene.remove(monsters.group);
+      disposeGroup(monsters.group);
+      monsters = null;
+    }
+    if (!current.era.monsters) return;
+    monsters = createMonsters({
+      rng: mulberry32(seed + 7),
+      graph: current.layout.roads,
+      cityRadiusM: current.layout.cityRadiusM,
+    });
+    scene.add(monsters.group);
+  }
+  buildMonsters();
+
   const thoughts: Thoughts = createThoughts({
     people,
     camera,
@@ -488,6 +511,7 @@ export function createWorld({
       profile: current.era.vehicles,
     });
     scene.add(traffic.system.group);
+    buildMonsters();
     thoughts.setThoughts(current.era.thoughts);
   }
 
@@ -586,6 +610,7 @@ export function createWorld({
 
       people.update(dtS, clock.hourOfDay, view);
       traffic.system.update(dtS, clock.hourOfDay, view);
+      monsters?.update(dtS, view);
       thoughts.update(dtS, view);
     },
     info: () =>
@@ -595,7 +620,10 @@ export function createWorld({
       `roads: ${current.layout.roads.edges.length}  lots: ${current.layout.lots.length}\n` +
       `people: ${people.count}  out: ${people.stats.outside}  drawn: ${people.stats.drawn}  walking: ${people.stats.walking}\n` +
       `vehicles: ${traffic.system.stats.active}  thoughts: ${thoughts.stats.shown}\n` +
-      `agents: ${(people.stats.updateMs + traffic.system.stats.updateMs).toFixed(2)} ms\n` +
+      (monsters
+        ? `monsters: ${monsters.stats.drawn} drawn  fights: ${monsters.stats.fights}\n`
+        : '') +
+      `agents: ${(people.stats.updateMs + traffic.system.stats.updateMs + (monsters?.stats.updateMs ?? 0)).toFixed(2)} ms\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }

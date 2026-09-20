@@ -6,6 +6,7 @@ import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 import { AFTER_ERA } from '@/world/eras/after';
 import { CITADEL_ERA } from '@/world/eras/citadel';
+import { MYTH_ERA } from '@/world/eras/myth';
 import { MODERN_ERA } from '@/world/eras/modern';
 
 /**
@@ -165,10 +166,16 @@ export interface Era {
   population: { people: number; vehicles: number };
   /** The colours inside a building that has been opened (world/interior.ts). */
   interior: InteriorStyle;
+  /**
+   * Whether this era has things living in it besides people: imps on the
+   * lanes, beasts on the plain, and heroes out looking for them
+   * (agents/monsters.ts). Only the mythic age sets it.
+   */
+  monsters?: boolean;
   build: (rng: Rng, terrain: TerrainSpec) => EraBuild;
 }
 
-const BUILT: readonly Era[] = [CITADEL_ERA, MODERN_ERA, AFTER_ERA];
+const BUILT: readonly Era[] = [MYTH_ERA, CITADEL_ERA, MODERN_ERA, AFTER_ERA];
 
 /** The eras that exist today, oldest first. */
 export function availableEras(): readonly Era[] {
