@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v10, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v11, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -112,6 +112,7 @@ src/
     renderer.ts            WebGPURenderer with WebGL2 fallback (done)
     camera.ts              OrbitControls-based rig; altitude(); follow(); flyTo() (partly done)
     loop.ts                rAF loop with clamped dt (done)
+    post.ts                tilt shift, outlines, bloom (done)
     input.ts               key bindings, touch helpers, idle timer
   state/
     altitude.ts            bands, boundaries, smoothstep blends, detail fades, fog range (done)
@@ -293,6 +294,10 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   Two things were learned getting here. A whole-town transparency does not work: it makes a soup, and a transparent wall still writes depth and goes on hiding what is behind it anyway. And taking only the roof off is not enough, because from overhead each floor slab hides the one below, so an opened tower shows its top storey and nothing else. What a doll's house actually does is take the *front* wall away. Which walls are the front ones depends on where the viewer is standing, so the two facing the camera are left out and the interiors are rebuilt when the view swings a quarter turn.
 
   Only a handful are ever open, so nothing about interiors is budgeted. They are seeded from the lot id, so the same building always has the same rooms in it.
+- **After the world is drawn** (`core/post.ts`). The scene goes through a `PostProcessing` chain rather than straight to the screen, with a second render target carrying view-space normals, because an edge between two surfaces facing different ways is not an edge in depth: without normals the corner where two walls of one building meet has no line on it.
+  - **Tilt shift.** Sharp in a band across the middle, blurred above and below. This is the one that matters most: a depth of field that shallow only happens to something a few centimetres across, so the eye reads the whole town as a physical model on a table. It fades out below about 150 m, because at street level a human eye would not see it and it reads as a smeared lens instead.
+  - **Outlines.** A dark line where depth or surface direction breaks. Screen space, which is the only way it can work here: a line measured in metres that reads at 400 m is a heavy border at 12 m.
+  - **Bloom.** Lit windows spill past their own edges after dark, and only after dark. Without it a night city is a grid of bright rectangles that stop dead at the wall.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -515,6 +520,8 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Everybody is drawn, indoors and out | the crowd was invisible while its thoughts floated over the roofs. Indoors people are placed inside their own building, a second pass shows whoever is hidden, and the aerial dots are not depth-tested |
 | 2026-09-20 | Rim light rather than an outline | a warm edge on faces turning away from the camera gives the silhouette an illustrated edge and costs no pass. A world-space outline cannot work here: one thick enough to read at 400 m is a border at 12 m, and the zoom range is the point. A real outline needs a screen-space pass |
 | 2026-09-20 | The hour is a slider on the bar, not only a URL parameter | the light is half of what the place looks like, and waiting fifteen real minutes to see dusk is not a way to look at it |
+| 2026-09-20 | The frame goes through a post-processing chain | tilt shift, outlines and bloom all need the finished picture, and the first two cannot be done any other way at this zoom range |
+| 2026-09-20 | Twelve thousand people, not four | four thousand over nineteen hundred buildings is two each over nine floors, so an opened building was genuinely empty |
 | 2026-09-20 | Buildings open one at a time on a click, rather than the whole town going transparent | owner's call: the transparency made a soup. A building with no front wall is a section drawing; a transparent one is a ghost |
 | 2026-09-20 | The two walls facing the viewer are the ones left out | from overhead every floor slab hides the one below, so taking only the roof off shows the top storey and nothing else |
 | ~~2026-09-20~~ | ~~Figures are drawn 2.4x life size under the x-ray~~ (reverted with the x-ray) | at true size the see-through view shows an empty shell, which defeats the only reason the mode exists |

@@ -80,6 +80,8 @@ export interface World {
   lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
   update: (dtS: number, elapsedS: number, view: ViewState) => void;
   info: () => string;
+  /** 0 in daylight, 1 at night. The bloom is a night effect (core/post.ts). */
+  nightFactor: () => number;
 }
 
 export interface WorldOptions {
@@ -414,6 +416,7 @@ export function createWorld({
       rebuildOpen(viewToward(lastView));
     },
     lotAt: (mesh, instanceId) => current.lotAt(mesh, instanceId),
+    nightFactor: () => skyAt(clock.hourOfDay).nightFactor,
     update: (dtS, elapsedS, view) => {
       lastView = view;
       // A quarter turn is enough to put a different pair of walls in the way.

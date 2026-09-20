@@ -5,7 +5,11 @@ import { createWorld } from '@/world/world';
 import { createHud } from '@/ui/hud';
 import { createBar } from '@/ui/bar';
 import { ERA_ORDER } from '@/world/eras';
-import { altitudeBand } from '@/state/altitude';
+import { altitudeBand, smoothstep } from '@/state/altitude';
+import { createPost } from '@/core/post';
+
+/** Where the miniature look fades in as the camera rises. */
+const POST_FADE = { offM: 90, onM: 260 } as const;
 import { readSettings } from '@/state/settings';
 import { wrapHour } from '@/state/clock';
 import { Raycaster, Vector2 } from 'three';
@@ -110,6 +114,8 @@ async function main(): Promise<void> {
     }
   });
 
+  const post = createPost(renderer, world.scene, rig.camera);
+
   let view = rig.view();
   let fps = 0;
 
@@ -120,10 +126,15 @@ async function main(): Promise<void> {
       view = rig.view();
       fps = 1 / Math.max(dt, 1e-6);
       world.update(dt, elapsed, view);
+      // The miniature look belongs to the view from above. At street level a
+      // human eye would not see that depth of field, and blurring the top of
+      // the frame there reads as a smeared lens rather than as a model.
+      post.setMiniature(smoothstep(POST_FADE.offM, POST_FADE.onM, view.altitudeM));
+      post.setNight(world.nightFactor());
       bar.update(dt);
     },
     render: () => {
-      renderer.render(world.scene, rig.camera);
+      post.render();
       // After render(), so the counters describe the frame just drawn.
       const stats = renderer.info.render;
       hud.set(
