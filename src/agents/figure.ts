@@ -2,7 +2,7 @@ import { BufferAttribute, BufferGeometry, CylinderGeometry, IcosahedronGeometry 
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /**
- * One person, about a hundred and eighty triangles.
+ * One person, about sixty triangles.
  *
  * A figure used to be three boxes painted one colour from the shoes up, which
  * at the roof band is a coloured brick. This is still only a handful of
@@ -57,43 +57,36 @@ function tinted(source: BufferGeometry, tint: readonly number[]): BufferGeometry
 
 export function figureGeometry(): BufferGeometry {
   /**
-   * Eight sides, and separate arms.
+   * Six sides, no arms, and that is the right answer.
    *
-   * Six sides and no arms was sized for a person five pixels tall, which is
-   * what they are from the roof band. But the camera comes down to twelve
-   * metres, and there a person fills a good part of the frame: at that range
-   * the six facets read as a hexagonal nut and a figure with no arms reads as
-   * a skittle. The extra thirty triangles cost nothing next to a building.
+   * This was briefly eight sides with arms, on the reasoning that the camera
+   * comes down to 12 m. The owner's correction: spend the triangles on the
+   * city, not on the people. It is the better call. A crowd is read as a
+   * crowd, by its density and its movement, and the silhouette carries that at
+   * any size; a building is read one at a time, so every edge on it counts.
+   *
+   * What stays is the per-part tinting, which costs nothing: darker trousers,
+   * a lighter shirt, a warmer head. That is what stops a figure being a
+   * coloured brick, and it works just as well on a simple shape.
    */
-  const legs = new CylinderGeometry(0.16, 0.1, 0.82, 8, 1);
+  const legs = new CylinderGeometry(0.15, 0.1, 0.82, 6, 1);
   legs.translate(0, 0.41, 0);
 
-  const body = new CylinderGeometry(0.18, 0.16, 0.54, 8, 1);
-  body.translate(0, 1.09, 0);
+  const body = new CylinderGeometry(0.17, 0.15, 0.56, 6, 1);
+  body.translate(0, 1.1, 0);
 
   // A shoulder line, so the head does not sit straight on a tube.
-  const shoulders = new CylinderGeometry(0.21, 0.2, 0.15, 8, 1);
-  shoulders.translate(0, 1.32, 0);
+  const shoulders = new CylinderGeometry(0.2, 0.19, 0.16, 6, 1);
+  shoulders.translate(0, 1.33, 0);
 
-  // Hanging at the sides, slightly splayed. Not animated: at this size the
-  // walking bob carries the movement and a swinging arm would only shimmer.
-  const arm = (side: number): BufferGeometry => {
-    const g = new CylinderGeometry(0.052, 0.042, 0.56, 5, 1);
-    g.rotateZ(side * -0.085);
-    g.translate(side * 0.2, 1.02, 0);
-    return g;
-  };
-
-  const head = new IcosahedronGeometry(0.135, 1);
-  head.scale(0.94, 1.1, 0.94);
-  head.translate(0, 1.55, 0);
+  const head = new IcosahedronGeometry(0.135, 0);
+  head.scale(1, 1.12, 1);
+  head.translate(0, 1.56, 0);
 
   const merged = mergeGeometries([
     tinted(legs, TINT.legs),
     tinted(body, TINT.body),
     tinted(shoulders, TINT.arms),
-    tinted(arm(1), TINT.arms),
-    tinted(arm(-1), TINT.arms),
     tinted(head, TINT.head),
   ]);
   if (!merged) throw new Error('could not merge the figure geometry');

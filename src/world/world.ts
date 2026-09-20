@@ -46,7 +46,7 @@ import { createRoads } from '@/world/road-mesh';
 import { mulberry32 } from '@/world/seed';
 import { createInteriors } from '@/world/interiors-mesh';
 import { buildInterior } from '@/world/interior';
-import { createStructures } from '@/world/structures';
+import { createStructures, type Structures } from '@/world/structures';
 import { advanceClouds } from '@/world/atmosphere';
 import { skyAt, type Rgb } from '@/world/sky';
 import { buildTerrain, type TerrainSpec } from '@/world/terrain';
@@ -106,6 +106,8 @@ interface EraWorld {
   lotIndex: LotIndex;
   buildings: Buildings;
   props: Props;
+  /** Null for an era that puts nothing on its lots beyond the buildings. */
+  structures: Structures | null;
   setRoadOpacity: (value: number) => void;
   setOpen: (lotIds: ReadonlySet<number>, towardX: number, towardZ: number) => void;
   lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
@@ -225,6 +227,7 @@ export function createWorld({
       lotIndex,
       buildings,
       props,
+      structures,
       setRoadOpacity: roads.setOpacity,
       /**
        * Takes these buildings away, with their roofs and their water tanks,

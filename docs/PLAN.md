@@ -143,6 +143,7 @@ src/
     roofscape.ts           pure: what stands on a roof (done)
     streetscape.ts         pure: yard walls, parked vehicles, poles (done)
     interior.ts            pure: the inside of one opened building, and where people stand in it (done)
+    facade.ts              pure: balconies, pilasters and shopfronts on a building's face (done)
     interiors-mesh.ts      three.js: draws whichever buildings are open (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
@@ -303,6 +304,18 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   | Timber and doors | `#8e3b2e` | derived |
 
   Since the owner then asked for a realistic look (20 Sep 2026), these sampled values have been pulled down in saturation: the tile runs `#d9985c` to `#a96c3c` with grey slate and dark thatch mixed in, the stone is `#c9c3ae`, and the violet is now `#8a7e9c`, muted towards a weathered stone that still reads as violet. The violet is still the thing that makes the picture read, so it has not been drifted to brick red; if the realism should win outright, that is the next value to change. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
+- **The face of a building** (`world/facade.ts`). The roofscape gave the city a skyline, but from anywhere below the roof band a wall was still one flat rectangle with a window pattern painted on it. Measured: a whole built 2020 came to 90k triangles, about fifty a building, twelve for the box it is and forty for what sits on top. That is why it read as a bar chart from above and as cardboard from the street.
+
+  So a building has depth on its face. A home gets balconies, two to a floor a side with a gap between them, because one run across the whole wall reads as a car park deck rather than as separate homes. A tower gets pilasters, thin ribs fitted evenly to each wall, which is the cheapest way to stop it being an extruded rectangle: they catch the light down one side and leave the other in shade. Anything on a street gets a band round the bottom in another material and a canopy over the door, which is what separates a ground floor from the eight above it.
+
+  Each era reads that kit differently, and the reading is the era. 2020 is concrete slabs with pale metal rails; a dark rail against a pale wall was tried first and does not read as a railing at all, it reads as a hole punched in the building. 1800 has no balconies and no plate glass, so a rib at that scale is a verandah post holding up a deep eave and starts at three metres rather than twelve, or the town of small houses gets nothing. 2300 puts the planting on the building, so its balcony is a deep planted terrace with a glass edge.
+
+- **The pavement** (`world/streetscape.ts`). Benches, planters and bollards, spaced along a street edge rather than placed per lot, because that is how they occur: a run of planters and a bench outside one shop and then forty metres of nothing. Roughly a quarter of the slots are deliberately left empty; an unbroken parade of benches is worse than a bare pavement, because it reads as wallpaper.
+
+- **Triangles go to the city, not to the people** (owner's call, 20 Sep 2026). A figure had briefly been given eight sides and arms. The right answer is the simple one: a crowd is read as a crowd, by its density and its movement, and a sixty-triangle silhouette carries that at any size, whereas a building is read one at a time and every edge on it counts. What stays on the figure is the per-part tinting, which costs nothing and is what stops a person being a coloured brick.
+
+  Where it went instead, per era, structures before and after: 2020 6,025 -> 18,017, 1800 3,932 -> 14,376, 2300 4,722 -> 22,883. About a million triangles at the roof band in 53 draw calls, which is what instancing is for: every one of those pieces is a box, and boxes are one draw.
+
 - **Opening a building.** Click one and it stands open: its solid mass and its roof are taken away and a shell is put there instead, with a floor per storey, furniture by what the building is for, and the people who live or work in it standing on the floors rather than all at ground level. Click again to shut it; `X` shuts them all.
 
   Two things were learned getting here. A whole-town transparency does not work: it makes a soup, and a transparent wall still writes depth and goes on hiding what is behind it anyway. And taking only the roof off is not enough, because from overhead each floor slab hides the one below, so an opened tower shows its top storey and nothing else. What a doll's house actually does is take the *front* wall away. Which walls are the front ones depends on where the viewer is standing, so the two facing the camera are left out and the interiors are rebuilt when the view swings a quarter turn.
@@ -509,6 +522,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - `npm run build`: production build; check the reported gzipped size against the budget.
 - `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
+- Measuring a level-of-detail pop: hold the camera **exactly** still and change only the detail. Two renders 10 m apart in altitude differ by 76% of pixels on their own, because a city is mostly thin vertical edges and they all move. That number was twice mistaken for a pop; a control pair with the detail unchanged gives the same number. Freeze the clock with `?pause=1` too, or a drifting sun moves every shadow between the two shots.
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
 - URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
@@ -562,6 +576,9 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | A workplace has a size | everyone walking to the workplace nearest their own home emptied the centre of town and put 210 people in one shed, because homes are all in the outskirts |
 | 2026-09-20 | A thought pill carries a tail, and a thread when it is lifted | the owner's complaint was that thoughts do not follow people. A pill floating near a crowd belongs to nobody in particular unless something points at the one person it came from |
 | 2026-09-20 | A person is about 180 triangles, not 60 | owner's call, on the strength of the phone being fast. The old figure was sized for the roof band; the camera comes down to 12 m |
+| 2026-09-20 | Reverted: a person is about 60 triangles after all; the triangles go to the city | owner's correction. A crowd reads as a crowd from its density; a building is looked at one at a time |
+| 2026-09-20 | A building has depth on its face: balconies, pilasters, a shopfront band | the whole built city was 90k triangles, fifty a building. It read as a bar chart from above and as cardboard from the street |
+| 2026-09-20 | The fine detail is never switched off by altitude | the saving is 144k triangles and two draw calls, which is not worth a band to pop across. The pop itself measured 1.97%, which is nothing |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

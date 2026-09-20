@@ -14,6 +14,7 @@ import { LAYER_Y } from '@/world/ground';
 import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
+import { buildFacade, type FacadeStyle } from '@/world/facade';
 import { range, type Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
@@ -161,6 +162,20 @@ const STREET_STYLE: StreetStyle = {
   // No poles: nothing in 1800 carries a wire.
   poleShare: 0,
   poleColour: 0x000000,
+  /**
+   * 1800 has no street furniture in the municipal sense, so this is what a
+   * market street actually has standing on it: a low timber bench outside a
+   * shop, a glazed pot with something growing in it, and the stone posts at a
+   * gate. Sparser than 2020, because most lanes have none of it.
+   */
+  furniture: {
+    share: 0.44,
+    stepM: 13,
+    benchColours: [0x7c6d5c, 0x6f5a42, 0x8a7454],
+    planterColours: [0xa8865c, 0x8e6b46, 0xb59468],
+    plantColours: [0x4a7038, 0x568038, 0x3f6030],
+    bollardColour: 0xb0a888,
+  },
 };
 
 const CITADEL_LOTS: LotProfile = {
@@ -303,6 +318,46 @@ function gateStructures(x: number, z: number, acrossX: boolean, colour: number):
   ];
 }
 
+/**
+ * 1800 has no balconies and no plate glass, so the face of a building is a
+ * timber verandah post and a deep eave. What is used here is the shopfront
+ * alone, read as a shaded timber shop front under the overhang, and a light
+ * rib on the few tall halls. Anything more would be importing a century.
+ */
+const FACADE_STYLE: FacadeStyle = {
+  balcony: {
+    share: 0,
+    everyM: 3.4,
+    perFloor: 1,
+    depthM: 0.9,
+    railM: 0.8,
+    colours: [0x8a7454],
+    railColours: [0x6b5a45],
+  },
+  /**
+   * At this scale a rib is a verandah post, which is what actually holds up a
+   * deep eave on a house of this period, so it starts at three metres rather
+   * than at twelve: the town is made of small houses and none of them would
+   * otherwise get anything. Timber, spaced as timber is.
+   */
+  pilaster: {
+    fromM: 3,
+    share: 0.66,
+    widthM: 0.22,
+    depthM: 0.19,
+    spacingM: 2.6,
+    colours: [0x8e3b2e, 0x7c6d5c, 0x94836a, 0x6f5a42],
+  },
+  shopfront: {
+    share: 0.72,
+    heightM: 2.6,
+    canopyDepthM: 1.7,
+    // Dark timber under the overhang, and a cloth awning over the door.
+    colours: [0x6f5a42, 0x5d4a37, 0x7c6650],
+    canopyColours: [0xc07a3e, 0xa8632f, 0xb08a52],
+  },
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const shape = { pitchM: CITADEL.pitchM, streetWidthM: CITADEL.laneWidthM, avenueCount: 0, ringWidthM: 9 };
   const grid = buildRoadGraph(rng, terrain, shape);
@@ -420,6 +475,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildRoofscape(rng, all, ROOF_STYLE));
   yield;
   structures.push(...buildStreetscape(rng, roads, all, STREET_STYLE));
+  yield;
+  structures.push(...buildFacade(rng, all, FACADE_STYLE));
 
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }

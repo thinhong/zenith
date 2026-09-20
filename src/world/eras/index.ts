@@ -34,8 +34,14 @@ export const ERA_LABELS: Readonly<Record<EraId, { name: string; year: number }>>
  * A shape a lot cannot express: a city wall, a gate roof, a moat, a courtyard.
  * Three kinds cover every era: a box, a wide flattened pyramid for a tiled
  * roof, and a flat quad lying on the ground.
+ *
+ * `trim` is a box too. It is the fine detail on a building's face and along
+ * the kerb: balconies, pilasters, shopfronts, benches. It is kept a separate
+ * kind so that it can one day be faded out with altitude as one piece, but it
+ * is drawn at every altitude for now: cutting it changes the average tone of
+ * every wall it is on, and `DETAIL` in state/altitude.ts has the measurement.
  */
-export type StructureKind = 'box' | 'roof' | 'gable' | 'tank' | 'flat';
+export type StructureKind = 'box' | 'roof' | 'gable' | 'tank' | 'flat' | 'trim';
 
 export interface Structure {
   kind: StructureKind;

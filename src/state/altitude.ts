@@ -59,6 +59,24 @@ export const DETAIL = {
   /** Trees and street lamps. */
   props: { offM: 3800, onM: 3100 },
   /**
+   * There is deliberately no threshold here for the fine detail on a
+   * building's face (the `trim` structure kind: balconies, pilasters,
+   * shopfronts, benches). It is drawn at every altitude.
+   *
+   * Not because switching it off looks bad. Held at one camera position,
+   * 910 m up, taking it away changes 1.97% of the pixels against a control
+   * of 0.33%, which nobody would see. It is because the saving is 144k
+   * triangles and two draw calls, and that is not worth a threshold to tune,
+   * a band to pop across, and a branch in the frame loop.
+   *
+   * A warning for whoever measures this next. The first two attempts put the
+   * pop at 76% and then 37%, and both were nonsense: they compared renders
+   * 10 m apart in altitude, and in a city of thin vertical edges a 10 m
+   * camera move shifts that many pixels on its own. A control pair with the
+   * detail unchanged gives the same numbers. To measure a level-of-detail
+   * pop, hold the camera exactly still and change only the detail.
+   */
+  /**
    * Thought labels. The acceptance is that the text is unreadable by 60 m and
    * gone by 70 m (PLAN.md M3), so the fade is finished a little under that.
    */

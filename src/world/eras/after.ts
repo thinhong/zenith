@@ -6,6 +6,7 @@ import { buildRoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
+import { buildFacade, type FacadeStyle } from '@/world/facade';
 import type { TerrainSpec } from '@/world/terrain';
 
 /**
@@ -127,6 +128,15 @@ const STREET_STYLE: StreetStyle = {
   // Slim masts, everywhere, carrying whatever this century carries.
   poleShare: 0.55,
   poleColour: 0xc4ccd0,
+  furniture: {
+    share: 0.78,
+    stepM: 9.5,
+    benchColours: [0xc8d2d8, 0xb4bcc0, 0xdfe6ea],
+    planterColours: [0xc0c6c8, 0xaeb8bc, 0xd2d8da],
+    // More planting than seating: the era puts green on every flat surface.
+    plantColours: [0x5f9a52, 0x6aa85c, 0x4f8a48, 0x7ab86a],
+    bollardColour: 0xc4ccd0,
+  },
 };
 
 const AFTER_LOTS: LotProfile = {
@@ -291,6 +301,40 @@ function skyline(rng: Rng, lots: readonly Lot[], cityRadiusM: number): Structure
   return out;
 }
 
+/**
+ * 2300 puts the planting on the building, so a balcony here is a deep planted
+ * terrace with a glass edge rather than a concrete shelf. The ribs run the
+ * full height and are the same pale material as the wall: the shadow is the
+ * only thing that shows them, which is the look.
+ */
+const FACADE_STYLE: FacadeStyle = {
+  balcony: {
+    share: 0.86,
+    everyM: 3.5,
+    perFloor: 2,
+    depthM: 1.6,
+    railM: 1.0,
+    // The slab reads as planting, because that is what is on it.
+    colours: [0x5f9a52, 0x6aa85c, 0x4f8a48, 0xc8d2d8],
+    railColours: [0xdfe6ea, 0xc8d2d8, 0xaec6d6],
+  },
+  pilaster: {
+    fromM: 26,
+    share: 0.78,
+    widthM: 0.36,
+    depthM: 0.34,
+    spacingM: 3.8,
+    colours: [0xe8eef2, 0xd6dee4, 0xf0f4f6],
+  },
+  shopfront: {
+    share: 0.58,
+    heightM: 4.4,
+    canopyDepthM: 1.9,
+    colours: [0xaebcc6, 0x9aa8b4, 0xc0ccd4],
+    canopyColours: [0xdfe6ea, 0x5f9a52, 0xd28a5a],
+  },
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const roads = buildRoadGraph(rng, terrain);
   yield;
@@ -303,6 +347,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
   yield;
   structures.push(...skyline(rng, lots, terrain.cityRadiusM));
+  yield;
+  structures.push(...buildFacade(rng, lots, FACADE_STYLE));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

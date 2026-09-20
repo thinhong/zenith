@@ -4,6 +4,7 @@ import { avenueCorridors, buildBlocks, buildLots, MODERN_LOTS } from '@/world/lo
 import { buildRoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
+import { buildFacade, type FacadeStyle } from '@/world/facade';
 import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
@@ -116,6 +117,50 @@ const STREET_STYLE: StreetStyle = {
   },
   poleShare: 0.3,
   poleColour: 0x8a8578,
+  furniture: {
+    share: 0.72,
+    stepM: 11,
+    // Timber slats on a dark frame, which is what a city bench is.
+    benchColours: [0x8a7a5c, 0x7a6a52, 0x6f7276],
+    planterColours: [0x9a9a96, 0x8b8b8e, 0xa8a49b],
+    plantColours: [0x4f7a3e, 0x5c8a46, 0x46703a],
+    bollardColour: 0x6e747a,
+  },
+};
+
+/**
+ * What sticks out of a 2020 wall. Concrete slab balconies on the flats, a
+ * shallow rib on the office towers, and a shopfront band along the bottom of
+ * anything on a street. The balcony is the one that matters: a block of flats
+ * without them is an office block.
+ */
+const FACADE_STYLE: FacadeStyle = {
+  balcony: {
+    share: 0.74,
+    everyM: 3.6,
+    perFloor: 2,
+    depthM: 1.15,
+    railM: 0.92,
+    colours: [0xb9b5ac, 0xc6c2b8, 0xa9a59d],
+    // Pale metal and glass. A dark rail against a pale wall does not read as
+    // a railing at all: it reads as a hole punched in the building.
+    railColours: [0xa8b0b8, 0x99a2ab, 0xb6bec6],
+  },
+  pilaster: {
+    fromM: 22,
+    share: 0.62,
+    widthM: 0.42,
+    depthM: 0.3,
+    spacingM: 4.2,
+    colours: [0xcfcbc2, 0xbdb9b1, 0xdad6cd],
+  },
+  shopfront: {
+    share: 0.66,
+    heightM: 3.9,
+    canopyDepthM: 1.5,
+    colours: [0x6f7378, 0x5e6266, 0x7d8186],
+    canopyColours: [0xc4643f, 0x3f6b7d, 0xb8ab7a, 0x5a7a52],
+  },
 };
 
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
@@ -128,6 +173,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const structures = buildRoofscape(rng, lots, ROOF_STYLE);
   yield;
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
+  yield;
+  structures.push(...buildFacade(rng, lots, FACADE_STYLE));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

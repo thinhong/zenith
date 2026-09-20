@@ -38,7 +38,7 @@ export function createStructures(structures: readonly Structure[]): Structures {
   const group = new Group();
   group.name = 'structures';
   const layers: { mesh: InstancedMesh<BufferGeometry, Material>; items: readonly Structure[] }[] = [];
-  for (const kind of ['flat', 'box', 'roof', 'gable', 'tank'] as const) {
+  for (const kind of ['flat', 'box', 'roof', 'gable', 'tank', 'trim'] as const) {
     const mine = structures.filter((structure) => structure.kind === kind);
     if (mine.length === 0) continue;
     const mesh = meshFor(kind, mine);
@@ -105,7 +105,7 @@ function meshFor(
 }
 
 function geometryFor(kind: StructureKind): BufferGeometry {
-  if (kind === 'box') {
+  if (kind === 'box' || kind === 'trim') {
     const box = new BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0); // base on the ground, so scaling in y grows upward
     return box;
