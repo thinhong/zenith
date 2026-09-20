@@ -36,7 +36,7 @@ describe('populate', () => {
   it('gives everyone a home, a workplace and a role', () => {
     const { lots, byUse, lotIndex } = city(1);
     const pool = createAgentPool(2000);
-    const placed = populate(mulberry32(1), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 2000 });
+    const placed = populate(mulberry32(1), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 2000, startHour: 3 });
 
     expect(placed).toBeGreaterThan(500);
     expect(pool.count).toBe(placed);
@@ -51,16 +51,50 @@ describe('populate', () => {
     }
   });
 
-  it('stands each person in their own doorway', () => {
+  it('starts everyone where the opening hour puts them', () => {
+    const { lots, byUse, lotIndex } = city(2);
+    const pool = createAgentPool(400);
+    // 03:00: everyone but the night workers is asleep at home
+    const placed = populate(mulberry32(2), pool, {
+      lots,
+      byUse,
+      lotIndex,
+      clothesCount: 6,
+      wanted: 400,
+      startHour: 3,
+    });
+    let atHome = 0;
+    for (let i = 0; i < placed; i++) if (pool.targetLot[i] === pool.homeLot[i]) atHome++;
+    expect(atHome / placed).toBeGreaterThan(0.7);
+
+    // 12:00: most of them are out at work or at a market instead
+    const midday = createAgentPool(400);
+    const middayPlaced = populate(mulberry32(2), midday, {
+      lots,
+      byUse,
+      lotIndex,
+      clothesCount: 6,
+      wanted: 400,
+      startHour: 12,
+    });
+    let elsewhere = 0;
+    for (let i = 0; i < middayPlaced; i++) {
+      if (midday.targetLot[i] !== midday.homeLot[i]) elsewhere++;
+    }
+    expect(elsewhere / middayPlaced).toBeGreaterThan(0.6);
+  });
+
+  it('stands each person at the lot they were placed in', () => {
     const { lots, byUse, lotIndex } = city(2);
     const pool = createAgentPool(300);
-    const placed = populate(mulberry32(2), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 300 });
+    const placed = populate(mulberry32(2), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 300, startHour: 3 });
     for (let i = 0; i < placed; i++) {
-      const home = lots[pool.homeLot[i] ?? 0];
-      expect(home).toBeDefined();
+      // Not always home: a night worker starts their shift at 03:00.
+      const where = lots[pool.targetLot[i] ?? 0];
+      expect(where).toBeDefined();
       // Positions live in a Float32Array, so a centimetre is the honest tolerance
       // at the far edge of a 1.4 km city.
-      const gap = Math.hypot(agentX(pool, i) - (home?.x ?? 0), agentZ(pool, i) - (home?.z ?? 0));
+      const gap = Math.hypot(agentX(pool, i) - (where?.x ?? 0), agentZ(pool, i) - (where?.z ?? 0));
       expect(gap).toBeLessThan(0.01);
     }
   });
@@ -68,7 +102,7 @@ describe('populate', () => {
   it('spreads the schedule offsets so the city does not move as one', () => {
     const { lots, byUse, lotIndex } = city(3);
     const pool = createAgentPool(500);
-    const placed = populate(mulberry32(3), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 500 });
+    const placed = populate(mulberry32(3), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 500, startHour: 3 });
     const offsets = Array.from(pool.hourOffset.subarray(0, placed));
     expect(Math.min(...offsets)).toBeLessThan(-0.4);
     expect(Math.max(...offsets)).toBeGreaterThan(0.4);
@@ -79,7 +113,7 @@ describe('populate', () => {
     const empty = { home: [], work: [], market: [], temple: [], park: [], water: [] };
     const lotIndex = buildLotIndex([]);
     expect(
-      populate(mulberry32(1), pool, { lots: [], byUse: empty, lotIndex, clothesCount: 4, wanted: 10 }),
+      populate(mulberry32(1), pool, { lots: [], byUse: empty, lotIndex, clothesCount: 4, wanted: 10, startHour: 3 }),
     ).toBe(0);
   });
 });

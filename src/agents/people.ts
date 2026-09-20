@@ -65,6 +65,8 @@ const PEOPLE = {
   bobM: 0.05,
   bobRate: 7,
   sitScale: 0.6,
+  /** A person is 1.7 m tall (PLAN.md 5). */
+  heightM: 1.7,
   /** How far across a lot people spread once they arrive. */
   spread: { market: 0.18, park: 0.38, temple: 0.22 },
   dotSizePx: 2.6,
@@ -87,11 +89,24 @@ export interface PeopleStats {
   drawn: number;
 }
 
+/** A person close enough to read a thought off, for thoughts/thoughts.ts. */
+export interface NearbyPerson {
+  agent: number;
+  x: number;
+  z: number;
+  /** Height of the head above the ground, in metres. */
+  headM: number;
+  place: Destination | 'street';
+  distanceM: number;
+}
+
 export interface People {
   group: Group;
   count: number;
   stats: PeopleStats;
   update: (dtS: number, hourOfDay: number, view: ViewState) => void;
+  /** The nearest people who are out of doors, nearest first. */
+  nearbyOutside: (x: number, z: number, radiusM: number, max: number) => NearbyPerson[];
 }
 
 export interface PeopleOptions {
@@ -102,6 +117,8 @@ export interface PeopleOptions {
   lotNodes: Int32Array;
   lotIndex: LotIndex;
   wanted: number;
+  /** The hour the world opens at (state/clock.ts). */
+  startHour: number;
 }
 
 export function createPeople(options: PeopleOptions): People {
@@ -114,6 +131,7 @@ export function createPeople(options: PeopleOptions): People {
     lotIndex,
     clothesCount: CLOTHES.length,
     wanted: options.wanted,
+    startHour: options.startHour,
   });
 
   const palette = paletteToLinear(CLOTHES);
@@ -299,10 +317,42 @@ export function createPeople(options: PeopleOptions): People {
     stats.drawn = written;
   }
 
+  function nearbyOutside(x: number, z: number, radiusM: number, max: number): NearbyPerson[] {
+    const found: NearbyPerson[] = [];
+    const limitSquared = radiusM * radiusM;
+    for (let i = 0; i < pool.count; i++) {
+      const state = pool.state[i] ?? 0;
+      if (state === STATE.inside) continue;
+      const px = agentX(pool, i);
+      const pz = agentZ(pool, i);
+      const dx = px - x;
+      const dz = pz - z;
+      const distanceSquared = dx * dx + dz * dz;
+      if (distanceSquared > limitSquared) continue;
+      const distanceM = Math.sqrt(distanceSquared);
+      const furthest = found[found.length - 1];
+      if (found.length >= max && furthest && distanceM >= furthest.distanceM) continue;
+      const person: NearbyPerson = {
+        agent: i,
+        x: px,
+        z: pz,
+        headM: PEOPLE.heightM * (state === STATE.sitting ? PEOPLE.sitScale : 1),
+        place: state === STATE.walking ? 'street' : destinationAt(pool.currentUse[i] ?? 0),
+        distanceM,
+      };
+      let at = found.length;
+      while (at > 0 && (found[at - 1]?.distanceM ?? 0) > distanceM) at--;
+      found.splice(at, 0, person);
+      if (found.length > max) found.pop();
+    }
+    return found;
+  }
+
   return {
     group,
     count: pool.count,
     stats,
+    nearbyOutside,
     update: (dtS, hourOfDay, view) => {
       const started = performance.now();
       frame++;

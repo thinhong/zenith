@@ -1,9 +1,18 @@
-import { Color, DirectionalLight, Fog, HemisphereLight, SRGBColorSpace, Scene } from 'three';
+import {
+  Color,
+  DirectionalLight,
+  Fog,
+  HemisphereLight,
+  SRGBColorSpace,
+  Scene,
+  type PerspectiveCamera,
+} from 'three';
 import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
 import { createPeople } from '@/agents/people';
 import { createTraffic } from '@/agents/traffic';
+import { createThoughts, type Thoughts } from '@/thoughts/thoughts';
 import { createBuildings } from '@/world/buildings';
 import { createGround } from '@/world/ground';
 import {
@@ -44,6 +53,10 @@ export interface WorldOptions {
   startHour: number | null;
   /** Freeze the clock (debug, see state/settings.ts). */
   paused: boolean;
+  /** Needed to project thought labels to the screen. */
+  camera: PerspectiveCamera;
+  /** The element the scene is drawn into, for its size in pixels. */
+  canvas: HTMLElement;
 }
 
 /**
@@ -69,7 +82,7 @@ const POPULATION = 4000;
 /** Vehicles on the road at rush hour. Fewer at other times (agents/traffic.ts). */
 const FLEET = 800;
 
-export function createWorld({ seed, startHour, paused }: WorldOptions): World {
+export function createWorld({ seed, startHour, paused, camera, canvas }: WorldOptions): World {
   const rng = mulberry32(seed);
   const terrain = buildTerrain(rng);
   const roads = buildRoadGraph(rng, terrain);
@@ -98,6 +111,7 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
   sun.shadow.intensity = 0.75;
   const buildings = createBuildings(lots);
   const props = createProps(rng, terrain, roads, lots);
+  const clock = createClock(startHour ?? undefined);
   const traffic = createTraffic({ rng, graph: roads, wanted: FLEET });
   const people = createPeople({
     rng,
@@ -107,6 +121,7 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
     lotNodes: lotRoadNodes(lots, roads),
     lotIndex: buildLotIndex(lots),
     wanted: POPULATION,
+    startHour: clock.hourOfDay,
   });
   scene.add(
     ambient,
@@ -125,7 +140,9 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
   // wobble at 300 m toggle it every frame.
   let shadowsOn = false;
 
-  const clock = createClock(startHour ?? undefined);
+  const thoughts: Thoughts = createThoughts({ people, camera, canvas });
+
+
   clock.paused = paused;
 
   return {
@@ -169,13 +186,14 @@ export function createWorld({ seed, startHour, paused }: WorldOptions): World {
 
       people.update(dtS, clock.hourOfDay, view);
       traffic.update(dtS, clock.hourOfDay, view);
+      thoughts.update(dtS, view);
     },
     info: () =>
       `seed: ${seed}  water: ${terrain.water.kind}\n` +
       `roads: ${roads.edges.length}  buildings: ${buildings.count}\n` +
       `trees: ${props.treeCount}  lamps: ${props.lampCount}\n` +
       `people: ${people.count}  out: ${people.stats.outside}  walking: ${people.stats.walking}\n` +
-      `vehicles: ${traffic.stats.active}\n` +
+      `vehicles: ${traffic.stats.active}  thoughts: ${thoughts.stats.shown}\n` +
       `agents: ${(people.stats.updateMs + traffic.stats.updateMs).toFixed(2)} ms  drawn: ${people.stats.drawn}\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };

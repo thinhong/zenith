@@ -4,6 +4,8 @@ import { ALTITUDE } from '@/state/altitude';
 
 export interface CameraRigOptions {
   startAltitudeM?: number;
+  /** Ground point to look at. Defaults to the centre of the world. */
+  startTarget?: { x: number; z: number };
   /** How far the viewer may pan the look-at point from the centre, in metres. */
   panLimitM?: number;
 }
@@ -37,12 +39,14 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
   const startAltitudeM = options.startAltitudeM ?? ALTITUDE.start;
   const panLimitM = options.panLimitM ?? ALTITUDE.max;
 
+  const target = options.startTarget ?? { x: 0, z: 0 };
+
   const camera = new PerspectiveCamera(45, 1, 1, ALTITUDE.max * 4);
-  camera.position.set(0, startAltitudeM, startAltitudeM * START_TILT);
-  camera.lookAt(0, 0, 0);
+  camera.position.set(target.x, startAltitudeM, target.z + startAltitudeM * START_TILT);
+  camera.lookAt(target.x, 0, target.z);
 
   const controls = new OrbitControls(camera, domElement);
-  controls.target.set(0, 0, 0);
+  controls.target.set(target.x, 0, target.z);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.minDistance = ALTITUDE.min;

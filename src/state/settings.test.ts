@@ -11,6 +11,7 @@ describe('parseSettings', () => {
       startHour: null,
       paused: false,
       startAltitudeM: null,
+      startTarget: null,
     });
   });
 
@@ -31,6 +32,12 @@ describe('parseSettings', () => {
   it('only freezes the clock when asked', () => {
     expect(parseSettings('?hour=9', false).paused).toBe(false);
     expect(parseSettings('?hour=9&pause=1', false).paused).toBe(true);
+  });
+
+  it('reads a look-at point and ignores a malformed one', () => {
+    expect(parseSettings('?at=120,-340', false).startTarget).toEqual({ x: 120, z: -340 });
+    expect(parseSettings('?at=120', false).startTarget).toBeNull();
+    expect(parseSettings('?at=a,b', false).startTarget).toBeNull();
   });
 
   it('passes reduced motion through', () => {

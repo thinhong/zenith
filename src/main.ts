@@ -15,12 +15,15 @@ async function main(): Promise<void> {
   const { renderer, backend } = await createRenderer(container);
   const rig = createCameraRig(renderer.domElement, {
     startAltitudeM: settings.startAltitudeM ?? undefined,
+    startTarget: settings.startTarget ?? undefined,
     panLimitM: TERRAIN.cityRadiusM,
   });
   const world = createWorld({
     seed: settings.seed,
     startHour: settings.startHour,
     paused: settings.paused,
+    camera: rig.camera,
+    canvas: container,
   });
   const hud = createHud();
 

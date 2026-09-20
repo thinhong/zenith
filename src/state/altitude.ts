@@ -45,6 +45,11 @@ export const DETAIL = {
   windows: { offM: 3800, onM: 3200 },
   /** Trees and street lamps. */
   props: { offM: 3800, onM: 3100 },
+  /**
+   * Thought labels. The acceptance is that the text is unreadable by 60 m and
+   * gone by 70 m (PLAN.md M3), so the fade is finished a little under that.
+   */
+  thoughts: { offM: 66, onM: 44 },
   /** The sun only casts shadows below this (PLAN.md 5, "Light"). */
   shadowMaxM: 300,
   /** Hysteresis around `shadowMaxM` so scrubbing the boundary does not thrash. */

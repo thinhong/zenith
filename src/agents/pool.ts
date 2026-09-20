@@ -1,7 +1,10 @@
 import { PATHS } from '@/agents/paths';
 import {
+  desiredUse,
   destinationIndex,
+  isIndoors,
   pickRole,
+  roleAt,
   roleIndex,
   type Destination,
 } from '@/agents/schedule';
@@ -96,11 +99,15 @@ export interface PopulateOptions {
   clothesCount: number;
   /** How many people to place, before the home-lot limit is applied. */
   wanted: number;
+  /** The hour the world opens at, so nobody starts the day in the wrong place. */
+  startHour: number;
 }
 
 /**
- * Gives everyone a home, a workplace, a role and a set of clothes, and stands
- * them in their doorway. Returns how many were placed.
+ * Gives everyone a home, a workplace, a role and a set of clothes, and puts
+ * them where their schedule says they should be at the opening hour. Starting
+ * everyone at home would mean several minutes of the city walking itself into
+ * position before it looked like anything. Returns how many were placed.
  */
 export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): number {
   const homes = options.byUse.home;
@@ -121,8 +128,6 @@ export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): n
 
     pool.homeLot[placed] = homeLot;
     pool.workLot[placed] = workLot;
-    pool.targetLot[placed] = homeLot;
-    pool.currentUse[placed] = destinationIndex('home');
     pool.role[placed] = roleIndex(pickRole(rng()));
     pool.clothes[placed] = Math.floor(rng() * options.clothesCount);
     pool.speedMS[placed] = range(rng, POOL.walkSpeedMS.min, POOL.walkSpeedMS.max);
@@ -133,14 +138,33 @@ export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): n
     pool.hourOffset[placed] = range(rng, -0.7, 0.7);
     pool.thinkS[placed] = range(rng, 0, 3);
     pool.phase[placed] = range(rng, 0, Math.PI * 2);
-    pool.state[placed] = STATE.inside;
-    pool.position[placed * 3] = lot.x;
+    const role = roleAt(pool.role[placed] ?? 0);
+    const want = desiredUse(role, options.startHour + (pool.hourOffset[placed] ?? 0));
+    const startLot = startingLot(options, want, homeLot, workLot, lot);
+    const where = options.lots[startLot] ?? lot;
+    pool.targetLot[placed] = startLot;
+    pool.currentUse[placed] = destinationIndex(want);
+    pool.state[placed] = isIndoors(want) ? STATE.inside : STATE.standing;
+    pool.position[placed * 3] = where.x;
     pool.position[placed * 3 + 1] = 0;
-    pool.position[placed * 3 + 2] = lot.z;
+    pool.position[placed * 3 + 2] = where.z;
     placed++;
   }
   pool.count = placed;
   return placed;
+}
+
+function startingLot(
+  options: PopulateOptions,
+  want: Destination,
+  homeLot: number,
+  workLot: number,
+  home: Lot,
+): number {
+  if (want === 'home') return homeLot;
+  if (want === 'work') return workLot;
+  const found = options.lotIndex.nearest(want, home.x, home.z);
+  return found >= 0 ? found : homeLot;
 }
 
 /** Copies a freshly built route into the agent's slice of the path arrays. */

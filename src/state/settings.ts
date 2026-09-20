@@ -14,6 +14,8 @@ export interface Settings {
   paused: boolean;
   /** Open at this altitude in metres. `null` uses ALTITUDE.start. */
   startAltitudeM: number | null;
+  /** Look at this point on the ground instead of the centre, as `?at=x,z`. */
+  startTarget: { x: number; z: number } | null;
 }
 
 export function parseSettings(search: string, reducedMotion: boolean): Settings {
@@ -24,6 +26,7 @@ export function parseSettings(search: string, reducedMotion: boolean): Settings 
     startHour: clampOrNull(finiteOrNull(q.get('hour')), 0, 24),
     paused: q.get('pause') === '1',
     startAltitudeM: clampOrNull(finiteOrNull(q.get('alt')), ALTITUDE.min, ALTITUDE.max),
+    startTarget: parsePoint(q.get('at')),
   };
 }
 
@@ -32,6 +35,14 @@ export function readSettings(): Settings {
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return parseSettings(window.location.search, reduced);
+}
+
+function parsePoint(raw: string | null): { x: number; z: number } | null {
+  if (raw === null) return null;
+  const parts = raw.split(',');
+  const x = finiteOrNull(parts[0] ?? null);
+  const z = finiteOrNull(parts[1] ?? null);
+  return x === null || z === null ? null : { x, z };
 }
 
 function finiteOrNull(raw: string | null): number | null {
