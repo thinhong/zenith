@@ -59,6 +59,13 @@ export interface FacadeStyle {
     depthM: number;
     /** Roughly how far apart, in metres. The count is fitted to the wall. */
     spacingM: number;
+    /**
+     * How tall a rib may be. Left out, it runs the whole wall, which is what
+     * a pilaster on a tower does. 1800 sets it to one storey, because at that
+     * scale a rib is a verandah post holding up an eave: running one up
+     * fifteen metres of hall reads as fluting on a column, not as a verandah.
+     */
+    maxHeightM?: number;
     colours: readonly number[];
   };
   /** A shopfront band and a canopy over the door, at the bottom of the wall. */
@@ -201,7 +208,8 @@ function balconies(out: Structure[], rng: Rng, lot: Lot, style: FacadeStyle): vo
 /** Thin ribs up all four walls, evenly fitted to each one. */
 function pilasters(out: Structure[], lot: Lot, style: FacadeStyle): void {
   const { pilaster } = style;
-  const hM = Math.max(1, lot.heightM - FACADE.pilasterHeadroomM);
+  const full = Math.max(1, lot.heightM - FACADE.pilasterHeadroomM);
+  const hM = pilaster.maxHeightM === undefined ? full : Math.min(full, pilaster.maxHeightM);
   const colour = pick(pilaster.colours, lot.jitter);
 
   for (const alongX of [true, false]) {

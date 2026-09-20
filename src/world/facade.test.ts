@@ -155,6 +155,28 @@ describe('buildFacade', () => {
     }
   });
 
+  it('caps a rib at one storey when the era asks for a verandah post', () => {
+    const posts: FacadeStyle = {
+      ...STYLE,
+      balcony: { ...STYLE.balcony, share: 0 },
+      shopfront: { ...STYLE.shopfront, share: 0 },
+      pilaster: { ...STYLE.pilaster, fromM: 3, maxHeightM: 3.2 },
+    };
+    const out = buildFacade(mulberry32(30), [lot('work', 40)], posts);
+    expect(out.length).toBeGreaterThan(0);
+    for (const piece of out) expect(piece.hM).toBeLessThanOrEqual(3.2);
+  });
+
+  it('runs a rib the whole wall when no cap is given', () => {
+    const ribs: FacadeStyle = {
+      ...STYLE,
+      balcony: { ...STYLE.balcony, share: 0 },
+      shopfront: { ...STYLE.shopfront, share: 0 },
+    };
+    const out = buildFacade(mulberry32(31), [lot('work', 40)], ribs);
+    expect(Math.max(...out.map((p) => p.hM))).toBeGreaterThan(30);
+  });
+
   it('honours a share of zero', () => {
     const none: FacadeStyle = {
       balcony: { ...STYLE.balcony, share: 0 },

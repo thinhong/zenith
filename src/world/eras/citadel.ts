@@ -142,6 +142,17 @@ const ROOF_STYLE: RoofStyle = {
   // Every building, and the halls are all well under the height cut.
   pitchedShare: 1,
   pitchedMaxM: 40,
+  curvedEaves: true,
+  tiers: {
+    /** Every temple gets one; a few of the taller houses do too. */
+    share: 0.3,
+    fromM: 9,
+    /** How much smaller the upper roof is than the lower one. */
+    shrink: 0.66,
+    /** Height of the clerestory band between the two roofs. */
+    gapM: 1.7,
+    bandColours: [WALL.violet, WALL.shade, 0x8e3b2e],
+  },
   wingShare: 0.34,
   crowns: false,
   crownTint: [STONE],
@@ -346,6 +357,8 @@ const FACADE_STYLE: FacadeStyle = {
     widthM: 0.22,
     depthM: 0.19,
     spacingM: 2.6,
+    // One storey of posts under the eave, never the whole wall.
+    maxHeightM: 3.2,
     colours: [0x8e3b2e, 0x7c6d5c, 0x94836a, 0x6f5a42],
   },
   shopfront: {

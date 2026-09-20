@@ -59,7 +59,19 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 
 **Sizes are written against the settlement radius, never in metres.** The water, the mountains and the road grid were first written as fixed metres for a 1400 m city. When the radius became 460 the same river was still 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the ground stopped being buildable, and one bank was left with nothing on it. Two tests caught it. Anything that scales with the place is a fraction of `TERRAIN.cityRadiusM`; wavenumbers scale the other way.
 
-**Budget after the shrink**, seed 1, measured with `vite-node`:
+**Where it stands after the detail passes of 20 Sep 2026**, seed 1, `?pause=1`, 1280x800. The triangle figures include the shadow pass, which draws the scene a second time:
+
+| | draws | triangles |
+|---|---|---|
+| Modern, roof band (250 m) | 53 | 995,050 |
+| Modern, above the shadow cutoff (910 m) | 38 | 327,260 |
+| Citadel, roof band (250 m) | 47 | 1,446,634 |
+| Citadel, over the halls (140 m) | 45 | 1,620,646 |
+| 2300, roof band (250 m) | 55 | 1,017,782 |
+
+Draw calls are the budgeted quantity and they are at a third of the limit, because everything repeats and everything is instanced. Triangles are not capped, and the largest single item is now the citadel's roofs at about 300k, which is where the owner asked for them to go. **The 30 fps Android target in the list below has not been checked since these passes**; the owner reports the iPhone is fast, and an A53 is a good deal weaker than that. If it has to come down, the first thing to try is a second, plainer roof geometry for the small houses, whose sweep does not read from the roof band anyway.
+
+**Budget before the detail passes**, seed 1, measured with `vite-node`:
 
 | | before (radius 1400 m) | after (radius 460 m) |
 |---|---|---|
@@ -144,6 +156,7 @@ src/
     streetscape.ts         pure: yard walls, parked vehicles, poles (done)
     interior.ts            pure: the inside of one opened building, and where people stand in it (done)
     facade.ts              pure: balconies, pilasters and shopfronts on a building's face (done)
+    roof-geometry.ts       three.js: the shape of one Hue roof, shared by every roof in town (done)
     interiors-mesh.ts      three.js: draws whichever buildings are open (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
@@ -304,6 +317,18 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   | Timber and doors | `#8e3b2e` | derived |
 
   Since the owner then asked for a realistic look (20 Sep 2026), these sampled values have been pulled down in saturation: the tile runs `#d9985c` to `#a96c3c` with grey slate and dark thatch mixed in, the stone is `#c9c3ae`, and the violet is now `#8a7e9c`, muted towards a weathered stone that still reads as violet. The violet is still the thing that makes the picture read, so it has not been drifted to brick red; if the realism should win outright, that is the next value to change. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
+- **The roofs of the citadel** (`world/roof-geometry.ts`), which are the reason to look at it. Every one used to be a flattened pyramid of ten triangles: a tent. Three things make a roof of this kind, and none of them are the tiles.
+
+  The slope is **concave**: it leaves the ridge steeply and flattens as it falls, sagging below the straight line a plain gable draws. The corners **turn up**, the eave sitting lowest at the middle of each side and sweeping to a flick at each of the four corners. And the **ridge** is a heavy capped bar along the top, with barge ridges running down the two ends to meet the corners. The ridge bar is deliberately heavier than it looks like it should be, because from directly above it is the only part with a hard edge on it and it is what tells you which way a building faces.
+
+  It is one geometry, shared by every roof in the town and scaled per building, which is the whole reason it can afford 198 triangles: that times fifteen hundred roofs is still one draw call, because they are all the same shape. Two things had to be tuned down from the first attempt. A sag of 1.62 with a corner lift of 0.3 made the halls read as scrolls, saddles rather than roofs; a real one of these is subtle, and the eye takes the flick from the silhouette rather than from how far it travels. It is 1.22 and 0.17 now.
+
+  **The sweep belongs to one century.** It is its own structure kind rather than a better `gable`, because the same eave on a 2020 suburban house is fancy dress. 2020 and 2300 keep the plain gable.
+
+  **Tiered roofs on the halls.** A second, smaller roof above the first with a band of wall between them. Not decoration: a hall of this kind is one tall room and the band is a clerestory, which is how it is lit and vented. Every temple gets one and about a third of the taller houses do, and it is what separates the halls on the axis from the houses around them, which are otherwise the same orange rectangles.
+
+  A geometry test caught what looking could not: all four barge ridges were wound face down, so from overhead, the one angle they are ever seen from, they lit as if they were the underside of something. A downward-facing triangle still draws, so the render looked merely a bit flat rather than wrong. Anything hand-built out of triangles gets a test that checks the normals.
+
 - **The face of a building** (`world/facade.ts`). The roofscape gave the city a skyline, but from anywhere below the roof band a wall was still one flat rectangle with a window pattern painted on it. Measured: a whole built 2020 came to 90k triangles, about fifty a building, twelve for the box it is and forty for what sits on top. That is why it read as a bar chart from above and as cardboard from the street.
 
   So a building has depth on its face. A home gets balconies, two to a floor a side with a gap between them, because one run across the whole wall reads as a car park deck rather than as separate homes. A tower gets pilasters, thin ribs fitted evenly to each wall, which is the cheapest way to stop it being an extruded rectangle: they catch the light down one side and leave the other in shade. Anything on a street gets a band round the bottom in another material and a canopy over the door, which is what separates a ground floor from the eight above it.
@@ -579,6 +604,9 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Reverted: a person is about 60 triangles after all; the triangles go to the city | owner's correction. A crowd reads as a crowd from its density; a building is looked at one at a time |
 | 2026-09-20 | A building has depth on its face: balconies, pilasters, a shopfront band | the whole built city was 90k triangles, fifty a building. It read as a bar chart from above and as cardboard from the street |
 | 2026-09-20 | The fine detail is never switched off by altitude | the saving is 144k triangles and two draw calls, which is not worth a band to pop across. The pop itself measured 1.97%, which is nothing |
+| 2026-09-20 | The citadel's roofs get the triangles | owner's call: they are what the place is for. 198 triangles a roof, 300k in the town, and still one draw call because every roof is the same geometry scaled |
+| 2026-09-20 | The Hue eave is its own structure kind, not a better gable | the same sweep on a 2020 suburban house is fancy dress. 2020 and 2300 keep the plain gable |
+| 2026-09-20 | Hand-built geometry gets a test that checks its normals | all four barge ridges shipped wound face down and the render only looked slightly flat. A downward triangle still draws |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

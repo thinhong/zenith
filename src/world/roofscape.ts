@@ -30,6 +30,20 @@ export interface RoofStyle {
   pitchedShare: number;
   /** Above this height nothing is pitched. */
   pitchedMaxM: number;
+  /**
+   * Whether a pitched roof is a Hue one: the concave sweep with the corners
+   * turned up (`world/roof-geometry.ts`). Only 1800 sets this. On a 2020
+   * suburban house the same eave would be fancy dress.
+   */
+  curvedEaves?: boolean;
+  /**
+   * Stacked roofs on the grand buildings: a second, smaller roof sitting above
+   * the first with a band of wall between them. It is the signature of Thai
+   * Hoa and of every hall on the axis, and it is what makes a hall read as a
+   * hall rather than as a large house with a large roof. Temples always get
+   * it; `share` is how many other tall buildings do.
+   */
+  tiers?: { share: number; fromM: number; shrink: number; gapM: number; bandColours: readonly number[] };
   /** Share of low buildings that grow a lower wing to one side. */
   wingShare: number;
   /** Whether tall buildings get a stepped crown and a mast. */
@@ -90,7 +104,7 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
     const pitched = lot.heightM <= style.pitchedMaxM && rng() < style.pitchedShare;
 
     if (pitched) {
-      ridged(out, lot, style, shortM);
+      ridged(out, rng, lot, style, shortM);
       if (rng() < style.chimney.share) chimney(out, rng, lot, style, shortM);
     } else {
       flat(out, rng, lot, style, shortM);
@@ -112,20 +126,66 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
   return out;
 }
 
-/** A ridge along the long axis, with the eaves hanging past the walls. */
-function ridged(out: Structure[], lot: Lot, style: RoofStyle, shortM: number): void {
+/**
+ * A ridge along the long axis, with the eaves hanging past the walls, and on
+ * a grand building a second smaller roof stacked above the first.
+ *
+ * The tier is not decoration. A hall of this kind is one tall room, and the
+ * upper roof is how it is lit and vented: the band of wall between the two
+ * roofs is a clerestory. Drawing it is what separates the halls on the axis
+ * from the houses around them, which are the same orange rectangles otherwise.
+ */
+function ridged(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: number): void {
   const alongX = lot.wM >= lot.dM;
   const grow = shortM * ROOFS.overhang * 2;
+  const kind = style.curvedEaves ? 'hue' : 'gable';
+  const colour = pick(lot.use === 'temple' ? style.grandTile : style.tile, lot.jitter);
+  const rotY = alongX ? 0 : Math.PI / 2;
+  const longM = alongX ? lot.wM : lot.dM;
+
   out.push({
-    kind: 'gable',
+    kind,
     x: lot.x,
     y: lot.heightM,
     z: lot.z,
-    wM: (alongX ? lot.wM : lot.dM) + grow,
+    wM: longM + grow,
     hM: shortM * ROOFS.pitch,
     dM: shortM + grow,
-    rotY: alongX ? 0 : Math.PI / 2,
-    colour: pick(lot.use === 'temple' ? style.grandTile : style.tile, lot.jitter),
+    rotY,
+    colour,
+  });
+
+  const tiers = style.tiers;
+  if (!tiers) return;
+  const grand = lot.use === 'temple';
+  if (!grand && (lot.heightM < tiers.fromM || rng() >= tiers.share)) return;
+
+  // The clerestory: a band of wall standing on the lower roof, inside its
+  // ridge, carrying the upper roof.
+  const upperLongM = longM * tiers.shrink;
+  const upperShortM = shortM * tiers.shrink;
+  const bandY = lot.heightM + shortM * ROOFS.pitch * 0.34;
+  out.push({
+    kind: 'box',
+    x: lot.x,
+    y: bandY,
+    z: lot.z,
+    wM: alongX ? upperLongM : upperShortM,
+    hM: tiers.gapM,
+    dM: alongX ? upperShortM : upperLongM,
+    rotY: 0,
+    colour: pick(tiers.bandColours, lot.jitter),
+  });
+  out.push({
+    kind,
+    x: lot.x,
+    y: bandY + tiers.gapM,
+    z: lot.z,
+    wM: upperLongM + grow,
+    hM: upperShortM * ROOFS.pitch,
+    dM: upperShortM + grow,
+    rotY,
+    colour,
   });
 }
 
@@ -328,7 +388,10 @@ function wing(
   const wingShort = Math.min(wingW, wingD);
   if (pitched) {
     out.push({
-      kind: 'gable',
+      // The same roof as the building it is attached to. A plain gable beside
+      // a swept one on the same house is the kind of mismatch the eye finds
+      // immediately even when it cannot say what is wrong.
+      kind: style.curvedEaves ? 'hue' : 'gable',
       x,
       y: heightM,
       z,

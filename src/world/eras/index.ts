@@ -35,13 +35,18 @@ export const ERA_LABELS: Readonly<Record<EraId, { name: string; year: number }>>
  * Three kinds cover every era: a box, a wide flattened pyramid for a tiled
  * roof, and a flat quad lying on the ground.
  *
+ * `hue` is a gable too, but a Hue one: a concave sweep with the corners
+ * turned up, a capped ridge and barge ridges down the ends. It is a separate
+ * kind rather than a better `gable` because that eave belongs to one century.
+ * On a 2020 suburban house it would be fancy dress.
+ *
  * `trim` is a box too. It is the fine detail on a building's face and along
  * the kerb: balconies, pilasters, shopfronts, benches. It is kept a separate
  * kind so that it can one day be faded out with altitude as one piece, but it
  * is drawn at every altitude for now: cutting it changes the average tone of
  * every wall it is on, and `DETAIL` in state/altitude.ts has the measurement.
  */
-export type StructureKind = 'box' | 'roof' | 'gable' | 'tank' | 'flat' | 'trim';
+export type StructureKind = 'box' | 'roof' | 'gable' | 'hue' | 'tank' | 'flat' | 'trim';
 
 export interface Structure {
   kind: StructureKind;
