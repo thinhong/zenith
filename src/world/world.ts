@@ -7,10 +7,11 @@ import {
   SRGBColorSpace,
   Scene,
   type PerspectiveCamera,
+  type Object3D,
 } from 'three';
 import { createPeople, type People } from '@/agents/people';
 import { createTraffic, type Traffic } from '@/agents/traffic';
-import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
+import { ALTITUDE, DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
 import {
@@ -43,6 +44,8 @@ import {
 import { collectProps, createProps, type Props } from '@/world/props';
 import { createRoads } from '@/world/road-mesh';
 import { mulberry32 } from '@/world/seed';
+import { createInteriors } from '@/world/interiors-mesh';
+import { buildInterior } from '@/world/interior';
 import { createStructures } from '@/world/structures';
 import { advanceClouds } from '@/world/atmosphere';
 import { skyAt, type Rgb } from '@/world/sky';
@@ -68,9 +71,13 @@ export interface World {
   showEra: (id: EraId) => void;
   /** The era being built, if one is. The bar lights that stop while it waits. */
   pendingEra: () => EraId | null;
-  /** Whether the walls are see-through, so the people inside can be watched. */
-  xray: () => boolean;
-  setXray: (on: boolean) => void;
+  /** The buildings standing open, so their insides can be watched. */
+  opened: ReadonlySet<number>;
+  /** Opens a building if it is shut, shuts it if it is open. */
+  toggleOpen: (lotId: number) => void;
+  closeAll: () => void;
+  /** Which lot a click landed on, given a hit on one of the building meshes. */
+  lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
   update: (dtS: number, elapsedS: number, view: ViewState) => void;
   info: () => string;
 }
@@ -98,7 +105,8 @@ interface EraWorld {
   buildings: Buildings;
   props: Props;
   setRoadOpacity: (value: number) => void;
-  setXray: (on: boolean) => void;
+  setOpen: (lotIds: ReadonlySet<number>, towardX: number, towardZ: number) => void;
+  lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
 }
 
 export function createWorld({
@@ -190,7 +198,8 @@ export function createWorld({
     yield;
 
     const structures = layout.structures.length > 0 ? createStructures(layout.structures) : null;
-    group.add(roads.group, buildings.group, props.group);
+    const interiors = createInteriors();
+    group.add(roads.group, buildings.group, props.group, interiors.group);
     if (structures) group.add(structures.group);
     group.traverse((object) => {
       object.castShadow = true;
@@ -214,10 +223,24 @@ export function createWorld({
       buildings,
       props,
       setRoadOpacity: roads.setOpacity,
-      setXray: (on) => {
-        buildings.setXray(on);
-        structures?.setXray(on);
+      /**
+       * Takes these buildings away, with their roofs and their water tanks,
+       * and stands an open shell in their place. The camera always looks
+       * down, so a building with no roof is a section drawing: this is why
+       * opening one is better than making the whole town transparent.
+       */
+      setOpen: (lotIds, towardX, towardZ) => {
+        buildings.setHidden(lotIds);
+        structures?.setHidden(lotIds);
+        interiors.clear();
+        for (const id of lotIds) {
+          const lot = layout.lots[id];
+          if (lot && lot.heightM > 0) {
+            interiors.add(buildInterior(lot, era.interior, towardX, towardZ));
+          }
+        }
       },
+      lotAt: buildings.lotAt,
     };
   }
 
@@ -230,9 +253,35 @@ export function createWorld({
     }
   }
 
-  /** Whether the walls are see-through. Survives a change of era. */
-  let xray = false;
+  /**
+   * The buildings standing open. Cleared on a change of era, because a lot id
+   * means nothing in the next one.
+   */
+  const opened = new Set<number>();
+  /**
+   * Where the viewer was standing when the open buildings were last built, as
+   * a unit vector on the ground. When the camera swings far enough round, the
+   * wall that was behind you is now the one in front, so they are rebuilt.
+   */
+  let openedTowardX = 0;
+  let openedTowardZ = 1;
 
+  /** The direction from the ground to the camera, flattened and normalised. */
+  function viewToward(view: ViewState): { x: number; z: number } {
+    const dx = camera.position.x - view.targetX;
+    const dz = camera.position.z - view.targetZ;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-3) return { x: 0, z: 1 };
+    return { x: dx / length, z: dz / length };
+  }
+
+  function rebuildOpen(toward: { x: number; z: number }): void {
+    openedTowardX = toward.x;
+    openedTowardZ = toward.z;
+    current.setOpen(opened, toward.x, toward.z);
+  }
+
+  let lastView: ViewState = { altitudeM: ALTITUDE.start, targetX: 0, targetZ: 0 };
   let current = buildEraWorld(first);
   let leaving: EraWorld | null = null;
   /** The era being built, one step per frame. Null while nothing is coming. */
@@ -302,7 +351,7 @@ export function createWorld({
     if (!step.done) return;
 
     const built = step.value;
-    built.setXray(xray);
+    opened.clear();
     if (leaving) {
       // A second change while one is still running: drop the one already sinking.
       scene.remove(leaving.group);
@@ -348,14 +397,25 @@ export function createWorld({
     eras,
     showEra,
     pendingEra: () => pending?.id ?? null,
-    xray: () => xray,
-    setXray: (on) => {
-      xray = on;
-      current.setXray(on);
-      leaving?.setXray(on);
-      people.setXray(on);
+    opened,
+    toggleOpen: (lotId) => {
+      if (opened.has(lotId)) opened.delete(lotId);
+      else opened.add(lotId);
+      rebuildOpen(viewToward(lastView));
     },
+    closeAll: () => {
+      if (opened.size === 0) return;
+      opened.clear();
+      rebuildOpen(viewToward(lastView));
+    },
+    lotAt: (mesh, instanceId) => current.lotAt(mesh, instanceId),
     update: (dtS, elapsedS, view) => {
+      lastView = view;
+      // A quarter turn is enough to put a different pair of walls in the way.
+      if (opened.size > 0) {
+        const toward = viewToward(view);
+        if (toward.x * openedTowardX + toward.z * openedTowardZ < 0.84) rebuildOpen(toward);
+      }
       const altitudeM = view.altitudeM;
       advanceClock(clock, dtS);
       advanceClouds(elapsedS);

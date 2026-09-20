@@ -64,6 +64,8 @@ export interface AgentPool {
   thinkS: Float32Array;
   /** Phase of the walking bob, so the crowd does not bounce in unison. */
   phase: Float32Array;
+  /** Which floor an indoor person is on. Ground is 0. */
+  storey: Uint8Array;
 }
 
 export function createAgentPool(capacity: number): AgentPool {
@@ -87,6 +89,7 @@ export function createAgentPool(capacity: number): AgentPool {
     laneM: new Float32Array(capacity),
     clothes: new Uint8Array(capacity),
     hourOffset: new Float32Array(capacity),
+    storey: new Uint8Array(capacity),
     thinkS: new Float32Array(capacity),
     phase: new Float32Array(capacity),
   };

@@ -42,6 +42,7 @@ import {
   paletteToLinear,
   writeInstanceMatrix,
 } from '@/world/instanced';
+import { storeyHeightM, storeysIn } from '@/world/interior';
 import { nearestNode, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 
@@ -79,14 +80,7 @@ const PEOPLE = {
   dotSizePx: 4.5,
   /** How strongly a figure shows through whatever is hiding it. */
   ghostOpacity: 0.55,
-  /**
-   * How much larger a figure is drawn while the walls are see-through. A
-   * person is 1.7 m and a room is four, so at true size they are a speck
-   * inside the building and the x-ray shows an empty shell. This is the one
-   * place the world is knowingly drawn out of scale, because the mode exists
-   * to be read rather than to be believed.
-   */
-  xrayScale: 2.4,
+
 } as const;
 
 export interface PeopleStats {
@@ -133,8 +127,7 @@ export interface People {
    * in one frame is exactly the hitch the era change is trying to avoid.
    */
   reseat: (next: ReseatOptions) => void;
-  /** Draws the figures larger, for the see-through view. */
-  setXray: (on: boolean) => void;
+
 }
 
 export interface PeopleOptions {
@@ -282,6 +275,10 @@ export function createPeople(options: PeopleOptions): People {
       const phase = pool.phase[index] ?? 0;
       const acrossM = (lot.wM * 0.34) * (fract(phase * 3.77) * 2 - 1);
       const alongM = (lot.dM * 0.34) * (fract(phase * 7.13) * 2 - 1);
+      // And on a floor of their own. A building of thirty metres has nine of
+      // them, and everybody standing on the ground one is what made an opened
+      // building look like an empty shell with a crowd in the basement.
+      pool.storey[index] = Math.floor(fract(phase * 11.7) * storeysIn(lot.heightM));
       pool.state[index] = STATE.inside;
       placeAgent(pool, index, lot.x + acrossM, lot.z + alongM);
       return;
@@ -350,6 +347,7 @@ export function createPeople(options: PeopleOptions): People {
     let slot = 0;
     for (let i = 0; i < pool.count && slot < PEOPLE.maxFigures; i++) {
       const state = pool.state[i] ?? 0;
+      const floorY = state === STATE.inside ? storeyHeightM(pool.storey[i] ?? 0) : 0;
       const x = agentX(pool, i);
       const z = agentZ(pool, i);
       const dx = x - view.targetX;
@@ -366,7 +364,7 @@ export function createPeople(options: PeopleOptions): People {
         figureMatrices,
         slot,
         x,
-        bob,
+        floorY + bob,
         z,
         -(pool.heading[i] ?? 0),
         figureScale,
@@ -445,9 +443,7 @@ export function createPeople(options: PeopleOptions): People {
     },
     stats,
     nearby,
-    setXray: (on) => {
-      figureScale = on ? PEOPLE.xrayScale : 1;
-    },
+
     reseat: (next) => {
       graph = next.graph;
       lots = next.lots;

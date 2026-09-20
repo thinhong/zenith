@@ -24,9 +24,9 @@ export interface BarOptions {
   paused: () => boolean;
   onHour: (hour: number) => void;
   onPause: (paused: boolean) => void;
-  /** Whether the walls are see-through. */
-  xray: () => boolean;
-  onXray: (on: boolean) => void;
+  /** How many buildings are standing open. */
+  openCount: () => number;
+  onCloseAll: () => void;
 }
 
 export interface Bar {
@@ -118,18 +118,18 @@ export function createBar(options: BarOptions): Bar {
     wake();
   });
 
-  // --- see-through walls -----------------------------------------------------
-  const xray = document.createElement('button');
-  xray.id = 'xray';
-  xray.type = 'button';
-  xray.textContent = 'X';
-  xray.title = 'See through the walls (X)';
-  xray.addEventListener('click', () => {
-    options.onXray(!options.xray());
+  // --- the buildings standing open -------------------------------------------
+  const close = document.createElement('button');
+  close.id = 'closeall';
+  close.type = 'button';
+  close.textContent = '\u2715';
+  close.title = 'Close the open buildings (X)';
+  close.addEventListener('click', () => {
+    options.onCloseAll();
     refresh();
     wake();
   });
-  root.appendChild(xray);
+  root.appendChild(close);
 
   const help = document.createElement('button');
   help.id = 'help';
@@ -147,7 +147,8 @@ export function createBar(options: BarOptions): Bar {
     '<b>1</b> to <b>5</b> change the era',
     '<b>Slider</b> sets the hour',
     '<b>Space</b> holds the day still',
-    '<b>X</b> makes the walls see-through',
+    '<b>Click</b> a building to take its roof off',
+    '<b>X</b> closes them again',
     '<b>H</b> shows the numbers',
   ]
     .map((line) => `<div>${line}</div>`)
@@ -181,7 +182,9 @@ export function createBar(options: BarOptions): Bar {
     const paused = options.paused();
     play.textContent = paused ? '▶' : '‖';
     play.classList.toggle('here', paused);
-    xray.classList.toggle('here', options.xray());
+    const open = options.openCount();
+    close.classList.toggle('here', open > 0);
+    close.title = open > 0 ? `Close ${open} open building${open === 1 ? '' : 's'} (X)` : 'Nothing is open';
   }
   refresh();
 

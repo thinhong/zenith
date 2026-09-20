@@ -1,4 +1,5 @@
 import type { ThoughtSet } from '@/thoughts/content';
+import type { InteriorStyle } from '@/world/interior';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import type { RoadGraph } from '@/world/roads';
 import type { Rng } from '@/world/seed';
@@ -37,6 +38,11 @@ export type StructureKind = 'box' | 'roof' | 'gable' | 'tank' | 'flat';
 
 export interface Structure {
   kind: StructureKind;
+  /**
+   * The lot this belongs to, when it belongs to one. Opening a building takes
+   * its roof and everything on it away, and this is how they are found.
+   */
+  lotId?: number;
   x: number;
   /** Height of the base above the ground, in metres. */
   y: number;
@@ -129,6 +135,8 @@ export interface Era {
   vehicles: VehicleProfile;
   thoughts: ThoughtSet;
   population: { people: number; vehicles: number };
+  /** The colours inside a building that has been opened (world/interior.ts). */
+  interior: InteriorStyle;
   build: (rng: Rng, terrain: TerrainSpec) => EraBuild;
 }
 

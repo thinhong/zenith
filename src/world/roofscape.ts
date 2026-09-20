@@ -78,6 +78,7 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
   const out: Structure[] = [];
   for (const lot of lots) {
     if (lot.heightM <= 0) continue;
+    const from = out.length;
     const shortM = Math.min(lot.wM, lot.dM);
     const pitched = lot.heightM <= style.pitchedMaxM && rng() < style.pitchedShare;
 
@@ -93,6 +94,11 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
     }
     if (lot.heightM <= style.pitchedMaxM && rng() < style.wingShare) {
       wing(out, rng, lot, style, pitched, shortM);
+    }
+    // Everything a lot put on its own roof goes away when it is opened.
+    for (let i = from; i < out.length; i++) {
+      const piece = out[i];
+      if (piece) piece.lotId = lot.id;
     }
   }
   return out;

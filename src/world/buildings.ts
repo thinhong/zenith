@@ -5,6 +5,7 @@ import {
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
+  type Object3D,
   MeshLambertMaterial,
   Quaternion,
   Vector3,
@@ -27,7 +28,7 @@ import {
 } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { cloudShadow } from '@/world/atmosphere';
-import { setMaterialsXray } from '@/world/instanced';
+import { writeInstanceMatrix } from '@/world/instanced';
 import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 
 /**
@@ -68,7 +69,10 @@ export interface Buildings {
   /** Fades the daytime window pattern, which aliases long before the lights do. */
   setFacade: (facade: number) => void;
   /** Makes the walls see-through (ui/bar.ts, the X key). */
-  setXray: (on: boolean) => void;
+  /** The lot a click landed on, or undefined if the mesh is not a building. */
+  lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
+  /** Hides these lots' buildings, by scaling those instances to nothing. */
+  setHidden: (lotIds: ReadonlySet<number>) => void;
   count: number;
 }
 
@@ -99,24 +103,43 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
   group.name = 'buildings';
 
   let count = 0;
+  const layers: { mesh: InstancedMesh; lots: readonly Lot[] }[] = [];
   for (const style of ['tower', 'slab', 'low'] as const) {
     const styleLots = lots.filter((lot) => lot.heightM > 0 && lot.style === style);
     if (styleLots.length === 0) continue;
-    group.add(buildingMesh(styleLots, style, windows.material, options.colours));
+    const mesh = buildingMesh(styleLots, style, windows.material, options.colours);
+    layers.push({ mesh, lots: styleLots });
+    group.add(mesh);
     count += styleLots.length;
   }
 
   const capped = options.caps
     ? lots.filter((lot) => lot.heightM > 0 && lot.style !== 'tower')
     : [];
-  if (capped.length > 0) group.add(roofMesh(capped, options.roof));
+  if (capped.length > 0) {
+    const mesh = roofMesh(capped, options.roof);
+    layers.push({ mesh, lots: capped });
+    group.add(mesh);
+  }
 
   return {
     group,
     setNight: windows.setNight,
     setDetail: windows.setDetail,
     setFacade: windows.setFacade,
-    setXray: (on) => setMaterialsXray([windows.material], on),
+    lotAt: (mesh, instanceId) => layers.find((l) => l.mesh === mesh)?.lots[instanceId],
+    setHidden: (lotIds) => {
+      for (const layer of layers) {
+        const matrices = layer.mesh.instanceMatrix.array as Float32Array;
+        for (let i = 0; i < layer.lots.length; i++) {
+          const lot = layer.lots[i];
+          if (!lot) continue;
+          const k = lotIds.has(lot.id) ? 0 : 1;
+          writeInstanceMatrix(matrices, i, lot.x, 0, lot.z, 0, lot.wM * k, lot.heightM * k, lot.dM * k);
+        }
+        layer.mesh.instanceMatrix.needsUpdate = true;
+      }
+    },
     count,
   };
 }

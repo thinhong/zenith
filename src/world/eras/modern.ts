@@ -137,5 +137,11 @@ export const MODERN_ERA: Era = {
   vehicles: VEHICLES,
   thoughts: MODERN_THOUGHTS,
   population: { people: 4000, vehicles: 800 },
+  interior: {
+    wall: 0xe2ddd2,
+    floor: 0xbcb6aa,
+    core: 0xa8a49a,
+    furniture: [0x8a6f56, 0x6e7b86, 0xb0a48e, 0x53606c, 0x9c8264],
+  },
   build,
 };

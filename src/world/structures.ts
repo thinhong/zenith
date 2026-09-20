@@ -27,22 +27,48 @@ import {
  */
 export interface Structures {
   group: Group;
-  /** Makes the walls, roofs and paving see-through (ui/bar.ts, the X key). */
-  setXray: (on: boolean) => void;
+  /**
+   * Hides everything belonging to these lots, by scaling those instances to
+   * nothing. Opening a building takes its roof, its tank and its chimney with
+   * it; leaving them behind would float a roof over an open shell.
+   */
+  setHidden: (lotIds: ReadonlySet<number>) => void;
 }
 
 export function createStructures(structures: readonly Structure[]): Structures {
   const group = new Group();
   group.name = 'structures';
-  const materials: Material[] = [];
+  const layers: { mesh: InstancedMesh<BufferGeometry, Material>; items: readonly Structure[] }[] = [];
   for (const kind of ['flat', 'box', 'roof', 'gable', 'tank'] as const) {
     const mine = structures.filter((structure) => structure.kind === kind);
     if (mine.length === 0) continue;
     const mesh = meshFor(kind, mine);
-    materials.push(mesh.material);
+    layers.push({ mesh, items: mine });
     group.add(mesh);
   }
-  return { group, setXray: (on) => setMaterialsXray(materials, on) };
+
+  return {
+    group,
+    setHidden: (lotIds) => {
+      for (const layer of layers) {
+        const matrices = layer.mesh.instanceMatrix.array as Float32Array;
+        let changed = false;
+        for (let i = 0; i < layer.items.length; i++) {
+          const item = layer.items[i];
+          if (!item || item.lotId === undefined) continue;
+          const hidden = lotIds.has(item.lotId);
+          writeStructure(matrices, i, item, hidden ? 0 : 1);
+          changed = true;
+        }
+        if (changed) layer.mesh.instanceMatrix.needsUpdate = true;
+      }
+    },
+  };
+}
+
+/** One structure's matrix. `scale` of 0 is how a thing is taken away. */
+function writeStructure(out: Float32Array, index: number, s: Structure, scale: number): void {
+  writeInstanceMatrix(out, index, s.x, s.y, s.z, s.rotY, s.wM * scale, s.hM * scale, s.dM * scale);
 }
 
 function meshFor(

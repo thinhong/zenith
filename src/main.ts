@@ -8,6 +8,7 @@ import { ERA_ORDER } from '@/world/eras';
 import { altitudeBand } from '@/state/altitude';
 import { readSettings } from '@/state/settings';
 import { wrapHour } from '@/state/clock';
+import { Raycaster, Vector2 } from 'three';
 import { TERRAIN } from '@/world/terrain';
 
 async function main(): Promise<void> {
@@ -48,10 +49,43 @@ async function main(): Promise<void> {
     onPause: (paused) => {
       world.clock.paused = paused;
     },
-    xray: () => world.xray(),
-    onXray: (on) => {
-      world.setXray(on);
+    openCount: () => world.opened.size,
+    onCloseAll: () => {
+      world.closeAll();
     },
+  });
+
+  // --- opening a building ----------------------------------------------------
+  // The camera always looks down, so a building with no roof is a section
+  // drawing. Clicking one takes its roof and its solid mass away and stands an
+  // open shell there instead; clicking it again puts it back. This replaces a
+  // whole-town transparency, which turned everything to soup.
+  const raycaster = new Raycaster();
+  const pointer = new Vector2();
+  let downAt: { x: number; y: number } | null = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    downAt = { x: e.clientX, y: e.clientY };
+  });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    const from = downAt;
+    downAt = null;
+    // A drag is how the camera is moved, so only a click opens anything.
+    if (!from || Math.hypot(e.clientX - from.x, e.clientY - from.y) > 5) return;
+    if (e.button !== 0) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, rig.camera);
+    const hits = raycaster.intersectObjects(world.scene.children, true);
+    for (const hit of hits) {
+      if (hit.instanceId === undefined) continue;
+      const lot = world.lotAt(hit.object, hit.instanceId);
+      if (!lot) continue;
+      world.toggleOpen(lot.id);
+      bar.refresh();
+      return;
+    }
   });
 
   window.addEventListener('keydown', (e) => {
@@ -61,8 +95,8 @@ async function main(): Promise<void> {
       bar.refresh();
       return;
     }
-    if (e.code === 'KeyX') {
-      world.setXray(!world.xray());
+    if (e.code === 'KeyX' || e.code === 'Escape') {
+      world.closeAll();
       bar.refresh();
       return;
     }

@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v9, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v10, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -130,6 +130,10 @@ src/
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
     props.ts               three.js: trees and street lamps (done); boats in M5
     structures.ts          three.js: walls, gates, roofs and paving an era places by hand (done)
+    roofscape.ts           pure: what stands on a roof (done)
+    streetscape.ts         pure: yard walls, parked vehicles, poles (done)
+    interior.ts            pure: the inside of one opened building (done)
+    interiors-mesh.ts      three.js: draws whichever buildings are open (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
       index.ts             Era interface + registry (done)
@@ -284,7 +288,11 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   | Timber and doors | `#8e3b2e` | derived |
 
   Since the owner then asked for a realistic look (20 Sep 2026), these sampled values have been pulled down in saturation: the tile runs `#d9985c` to `#a96c3c` with grey slate and dark thatch mixed in, the stone is `#c9c3ae`, and the violet is now `#8a7e9c`, muted towards a weathered stone that still reads as violet. The violet is still the thing that makes the picture read, so it has not been drifted to brick red; if the realism should win outright, that is the next value to change. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
-- **The see-through view.** `X` makes walls, roofs and paving see-through, so the people inside can be watched. Depth writing goes off with the opacity, or a transparent wall still fills the depth buffer and goes on hiding what is behind it. The figures are drawn 2.4 times life size while it is on: a person is 1.7 m and a room is four, so at true size the x-ray shows an empty shell. That is the one place the world is knowingly out of scale, because the mode exists to be read rather than to be believed.
+- **Opening a building.** Click one and it stands open: its solid mass and its roof are taken away and a shell is put there instead, with a floor per storey, furniture by what the building is for, and the people who live or work in it standing on the floors rather than all at ground level. Click again to shut it; `X` shuts them all.
+
+  Two things were learned getting here. A whole-town transparency does not work: it makes a soup, and a transparent wall still writes depth and goes on hiding what is behind it anyway. And taking only the roof off is not enough, because from overhead each floor slab hides the one below, so an opened tower shows its top storey and nothing else. What a doll's house actually does is take the *front* wall away. Which walls are the front ones depends on where the viewer is standing, so the two facing the camera are left out and the interiors are rebuilt when the view swings a quarter turn.
+
+  Only a handful are ever open, so nothing about interiors is budgeted. They are seeded from the lot id, so the same building always has the same rooms in it.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -507,7 +515,9 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Everybody is drawn, indoors and out | the crowd was invisible while its thoughts floated over the roofs. Indoors people are placed inside their own building, a second pass shows whoever is hidden, and the aerial dots are not depth-tested |
 | 2026-09-20 | Rim light rather than an outline | a warm edge on faces turning away from the camera gives the silhouette an illustrated edge and costs no pass. A world-space outline cannot work here: one thick enough to read at 400 m is a border at 12 m, and the zoom range is the point. A real outline needs a screen-space pass |
 | 2026-09-20 | The hour is a slider on the bar, not only a URL parameter | the light is half of what the place looks like, and waiting fifteen real minutes to see dusk is not a way to look at it |
-| 2026-09-20 | Figures are drawn 2.4x life size under the x-ray | at true size the see-through view shows an empty shell, which defeats the only reason the mode exists |
+| 2026-09-20 | Buildings open one at a time on a click, rather than the whole town going transparent | owner's call: the transparency made a soup. A building with no front wall is a section drawing; a transparent one is a ghost |
+| 2026-09-20 | The two walls facing the viewer are the ones left out | from overhead every floor slab hides the one below, so taking only the roof off shows the top storey and nothing else |
+| ~~2026-09-20~~ | ~~Figures are drawn 2.4x life size under the x-ray~~ (reverted with the x-ray) | at true size the see-through view shows an empty shell, which defeats the only reason the mode exists |
 | 2026-09-20 | Look: painted daylight (owner's third and current call) | the palettes have now been photographic once and painted twice. The structural work (roofs, density, crowd, shadows, haze, windows) is the same either way; only the palette tables and the sky keyframes change, and the photographic set is in the history if it is wanted back |
 
 ## 10. Open questions (decide before the milestone that needs them)
