@@ -83,7 +83,18 @@ export function selectThoughts(
  */
 export function steadyPick(agent: number, place: ThoughtPlace, count: number): number {
   if (count <= 0) return 0;
-  let hash = agent * 2654435761;
-  for (let i = 0; i < place.length; i++) hash = (hash ^ place.charCodeAt(i)) * 16777619;
+  // Math.imul, not `*`. A 32-bit multiply done in doubles passes 2^53 once the
+  // agent index is in the thousands, and the low bits round away: every person
+  // in a building then hashed to the same number, so opening an office showed
+  // four people reading the same sentence back at each other.
+  let hash = Math.imul(agent + 1, 2654435761);
+  for (let i = 0; i < place.length; i++) {
+    hash = Math.imul(hash ^ place.charCodeAt(i), 16777619);
+  }
+  // A final avalanche, so people sitting next to each other (and so numbered
+  // next to each other) do not land on neighbouring lines either.
+  hash ^= hash >>> 15;
+  hash = Math.imul(hash, 2246822507);
+  hash ^= hash >>> 13;
   return Math.abs(hash % count);
 }

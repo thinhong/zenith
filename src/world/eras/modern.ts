@@ -97,6 +97,7 @@ const ROOF_STYLE: RoofStyle = {
   wingShare: 0.34,
   crowns: true,
   crownTint: [0xacb4bc, 0x98a1aa, 0xc0c8d0, 0x8e97a0],
+  ledge: { everyM: 9.6, thicknessM: 0.34, overhangM: 0.26, colours: [0xbcc2c8, 0xa6aeb6, 0xcbd0d4] },
   chimney: { share: 0.34, colours: [0xa08a78, 0x8e7c6c, 0xb0a08c] },
   // Roof gardens and solar racks, which is what a 2020 flat roof carries.
   deckTop: { share: 0.3, colours: [0x5c7a44, 0x3c4a60, 0x6c8a50, 0x46566e] },

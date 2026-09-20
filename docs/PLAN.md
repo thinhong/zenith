@@ -142,7 +142,7 @@ src/
     structures.ts          three.js: walls, gates, roofs and paving an era places by hand (done)
     roofscape.ts           pure: what stands on a roof (done)
     streetscape.ts         pure: yard walls, parked vehicles, poles (done)
-    interior.ts            pure: the inside of one opened building (done)
+    interior.ts            pure: the inside of one opened building, and where people stand in it (done)
     interiors-mesh.ts      three.js: draws whichever buildings are open (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
@@ -158,10 +158,13 @@ src/
     paths.ts               pure: A* route -> waypoints, corners smoothed, pavement baked in (done)
     people.ts              three.js: walking, arriving, instanced figures and points (done)
     traffic.ts             three.js: vehicles on the road graph, boxes and points (done)
+    figure.ts              three.js: the geometry of one person, about 180 triangles (done)
+    workplaces.ts          pure: how many desks a building has, and who gets them (done)
   thoughts/
     content.ts             pure: thought texts by era and by place, data only (done)
     select.ts              pure: who is thinking out loud, and for how long (done)
     thoughts.ts            three.js + DOM: projects heads to screen, places the pills (done)
+    place.ts               pure: where a pill goes and how it stays joined to a head (done)
   souls/
     souls.ts               SoulSystem: pick, follow, life card, hand-over animation
     lives.ts               life card templates by era (data only)
@@ -305,11 +308,26 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   Two things were learned getting here. A whole-town transparency does not work: it makes a soup, and a transparent wall still writes depth and goes on hiding what is behind it anyway. And taking only the roof off is not enough, because from overhead each floor slab hides the one below, so an opened tower shows its top storey and nothing else. What a doll's house actually does is take the *front* wall away. Which walls are the front ones depends on where the viewer is standing, so the two facing the camera are left out and the interiors are rebuilt when the view swings a quarter turn.
 
   Only a handful are ever open, so nothing about interiors is budgeted. They are seeded from the lot id, so the same building always has the same rooms in it.
+
+  **People are only drawn when you can see them** (20 Sep 2026). Somebody inside a sealed building is behind a wall and the depth test throws the figure away, so drawing it is work nobody sees. At street level in 2020 that was 4200 figures and 890k triangles hidden inside offices: skipping them took the frame from 1,262,490 triangles to 371,514 with a pixel-identical picture. The same rule decides who may think out loud, which is what makes opening a building feel like turning a sound on.
+
+- **Whose thought is it.** A pill belongs to a person, and everything about how it is placed serves that (`thoughts/place.ts`, tested).
+
+  Three faults had to be fixed before it read that way, and all three looked like one vague complaint: the thoughts are not attached to anybody.
+
+  - A thought was offered for anybody within 40 m, indoors or out. In the citadel and in 2300 most of the crowd is at a desk at midday, so every pill hung over a sealed roof with nobody underneath. Now only people you can actually see are candidates.
+  - A pill centred on somebody at the edge of the frame hung half outside it and its text was cut in two. It now slides in off the edge and the tail leans over to keep pointing at the head, the way a speech bubble's does.
+  - Pills that collide lift clear of one another, and a lifted pill grows a thread back down to its own head. Past 120 px of thread the pair stops reading as one thing, so the pill is dropped instead. That limit has to stay under `nudgeLimit * gapPx` or it can never be reached and the rule is dead code, which is how it shipped the first time.
+
+- **Where people stand inside a building** (`world/interior.ts spotInside`, `spotOutside`). Everybody used to be put on the exact centre point of their lot at ground level. `arrive()` scattered the ones who walked in, but most of the town starts the day already indoors and never walks anywhere during a short look, so the pile was what you actually saw: open a building and sixty-four people were standing inside one another in a column, which from above is a single speck.
+
+- **Which building somebody works in** (`agents/workplaces.ts`, tested). People used to walk to the work lot nearest their own front door, which sounds reasonable and produces a town nobody would recognise. Homes sit in the outskirts (median 331 m out) and workplaces in the middle, so the nearest workplace to a home is always another outskirt one: 70 of the citadel's 164 workplaces were never chosen at all, the whole centre of town stood empty at midday, and one shed on the edge held 210 people. A workplace has a size now, its share of the town's desks being its share of the town's floor area, and people fill the nearest one with a desk left in it. All 164 are occupied, the worst pile-up is 68, and the building at the centre of the view holds 64.
 - **After the world is drawn** (`core/post.ts`). The scene goes through a `PostProcessing` chain rather than straight to the screen, with a second render target carrying view-space normals, because an edge between two surfaces facing different ways is not an edge in depth: without normals the corner where two walls of one building meet has no line on it.
   - **Tilt shift.** Sharp in a band across the middle, blurred above and below. This is the one that matters most: a depth of field that shallow only happens to something a few centimetres across, so the eye reads the whole town as a physical model on a table. It fades out below about 150 m, because at street level a human eye would not see it and it reads as a smeared lens instead.
   - **Outlines.** A dark line where depth or surface direction breaks. Screen space, which is the only way it can work here: a line measured in metres that reads at 400 m is a heavy border at 12 m.
   - **Bloom.** Lit windows spill past their own edges after dark, and only after dark. Without it a night city is a grid of bright rectangles that stop dead at the wall.
-- **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
+- **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does. They wrap rather than run off the frame, and they carry a tail pointing at the head they belong to. The lift above the head is part metres and part pixels: a lift in metres alone shrinks with altitude, so over an opened building the stack came to rest on the very crowd it belonged to.
+- **A person is about sixty triangles, or a hundred and eighty.** The figure was sized for somebody five pixels tall, which is what they are from the roof band, but the camera comes down to 12 m and there a person fills a good part of the frame: six facets read as a hexagonal nut and no arms reads as a skittle. Eight sides and separate arms now, and the cost is paid back several times over by not drawing the people nobody can see. Above 300 m they are dots, because a person is roughly 1450/altitude pixels tall and three metres above that line a figure is three pixels.
 
 ## 6. Milestones
 
@@ -540,6 +558,10 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | The two walls facing the viewer are the ones left out | from overhead every floor slab hides the one below, so taking only the roof off shows the top storey and nothing else |
 | ~~2026-09-20~~ | ~~Figures are drawn 2.4x life size under the x-ray~~ (reverted with the x-ray) | at true size the see-through view shows an empty shell, which defeats the only reason the mode exists |
 | 2026-09-20 | Look: painted daylight (owner's third and current call) | the palettes have now been photographic once and painted twice. The structural work (roofs, density, crowd, shadows, haze, windows) is the same either way; only the palette tables and the sky keyframes change, and the photographic set is in the history if it is wanted back |
+| 2026-09-20 | Only people you can see are drawn, and only they think out loud | somebody behind a wall is depth-tested away, so drawing them is work nobody sees: 4200 figures and 890k triangles hidden inside offices at street level. It also makes opening a building turn a sound on |
+| 2026-09-20 | A workplace has a size | everyone walking to the workplace nearest their own home emptied the centre of town and put 210 people in one shed, because homes are all in the outskirts |
+| 2026-09-20 | A thought pill carries a tail, and a thread when it is lifted | the owner's complaint was that thoughts do not follow people. A pill floating near a crowd belongs to nobody in particular unless something points at the one person it came from |
+| 2026-09-20 | A person is about 180 triangles, not 60 | owner's call, on the strength of the phone being fast. The old figure was sized for the roof band; the camera comes down to 12 m |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

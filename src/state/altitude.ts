@@ -104,7 +104,15 @@ export function fogRange(altitudeM: number): { nearM: number; farM: number } {
  * rest of this file: no metre threshold for agents lives anywhere else.
  */
 export const AGENTS = {
-  /** Below this, people are walking figures. Above it they are dots. */
+  /**
+   * Below this, people are walking figures. Above it they are dots.
+   *
+   * It sits on the roof band boundary on purpose. A person is roughly
+   * 1450/altitude pixels tall, so three metres up from here a figure is three
+   * pixels and its hundred and eighty triangles buy nothing a dot does not
+   * give; and above the roof band you are looking at the town rather than at
+   * anybody in it.
+   */
   figuresMaxM: 300,
   /** Above this, people are not drawn at all. */
   peopleDotsMaxM: 1250,
@@ -136,5 +144,5 @@ export const AGENTS = {
    */
   drawRadiusM: 700,
   drawMinM: 90,
-  drawPerAltitude: 2.4,
+  drawPerAltitude: 3.2,
 } as const;

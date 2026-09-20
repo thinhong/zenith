@@ -8,7 +8,8 @@ import {
   roleIndex,
   type Destination,
 } from '@/agents/schedule';
-import { storeysIn } from '@/world/interior';
+import { buildWorkplaces, nearestWithRoom, WORK } from '@/agents/workplaces';
+import { OUTDOOR_SPREAD, spotInside, spotOutside } from '@/world/interior';
 import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import { range, type Rng } from '@/world/seed';
 
@@ -124,17 +125,28 @@ export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): n
   if (homes.length === 0 || options.byUse.work.length === 0) return 0;
 
   const wanted = Math.min(options.wanted, pool.capacity, homes.length * POOL.perHomeLot);
+
+  // Workplaces are sized before anybody is seated, so the tall building in the
+  // middle of town is worth the walk and a shed on the edge fills up and stops
+  // taking people (agents/workplaces.ts).
+  const places = buildWorkplaces(options.lots, options.byUse.work, wanted * WORK.workingShare);
+  if (places.length === 0) return 0;
+  const usedDesks = new Array<number>(places.length).fill(0);
+
   let placed = 0;
   for (let i = 0; i < wanted; i++) {
     const homeLot = homes[Math.floor(rng() * homes.length)];
     if (homeLot === undefined) continue;
     const lot = options.lots[homeLot];
     if (!lot) continue;
-    // The nearest workplace, not a random one. A day lasts fifteen real
-    // minutes and people walk at 1.4 m/s, so a commute across the city would
-    // never finish (PLAN.md 4.5).
-    const workLot = options.lotIndex.nearest('work', lot.x, lot.z);
+    // The nearest workplace with a desk left in it, not simply the nearest. A
+    // day lasts fifteen real minutes and people walk at 1.4 m/s, so a commute
+    // across the city would never finish (PLAN.md 4.5), but "nearest" alone
+    // left the whole centre of town empty.
+    const desk = nearestWithRoom(places, usedDesks, lot.x, lot.z);
+    const workLot = desk >= 0 ? (places[desk]?.lot ?? -1) : -1;
     if (workLot < 0) continue;
+    usedDesks[desk] = (usedDesks[desk] ?? 0) + 1;
 
     pool.homeLot[placed] = homeLot;
     pool.workLot[placed] = workLot;
@@ -154,19 +166,31 @@ export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): n
     const where = options.lots[startLot] ?? lot;
     pool.targetLot[placed] = startLot;
     pool.currentUse[placed] = destinationIndex(want);
-    pool.state[placed] = isIndoors(want) ? STATE.inside : STATE.standing;
-    // A floor of their own from the first frame. `arrive()` sets this when
-    // somebody walks in, but most of the town starts the day already indoors
-    // and never walks anywhere during a short look, so without this every
-    // opened building had its whole population standing on the ground floor.
-    pool.storey[placed] = Math.floor(rng() * storeysIn(where.heightM));
-    pool.position[placed * 3] = where.x;
+    const indoors = isIndoors(want);
+    pool.state[placed] = indoors ? STATE.inside : STATE.standing;
+    // A spot and a floor of their own from the first frame. `arrive()` does
+    // this when somebody walks in, but most of the town starts the day already
+    // indoors and never walks anywhere during a short look, so without it
+    // every opened building held one column of people at its centre.
+    const phase = pool.phase[placed] ?? 0;
+    const spot = indoors
+      ? spotInside(where, phase)
+      : spotOutside(where, phase, spreadFor(want));
+    pool.storey[placed] = spot.storey;
+    pool.position[placed * 3] = spot.x;
     pool.position[placed * 3 + 1] = 0;
-    pool.position[placed * 3 + 2] = where.z;
+    pool.position[placed * 3 + 2] = spot.z;
     placed++;
   }
   pool.count = placed;
   return placed;
+}
+
+/** How far across an open lot a person of this destination stands. */
+function spreadFor(want: Destination): number {
+  if (want === 'park') return OUTDOOR_SPREAD.park;
+  if (want === 'market') return OUTDOOR_SPREAD.market;
+  return OUTDOOR_SPREAD.temple;
 }
 
 function startingLot(

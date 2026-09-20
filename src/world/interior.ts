@@ -49,6 +49,61 @@ export function storeyHeightM(storey: number): number {
   return storey * INTERIOR.floorM;
 }
 
+/** Where one person stands inside a building: a spot on a floor of their own. */
+export interface Spot {
+  x: number;
+  z: number;
+  storey: number;
+}
+
+/**
+ * Spreads a person across the inside of their building.
+ *
+ * Everybody used to be dropped on the exact centre of the lot at ground level,
+ * which is invisible until you open the building and find sixty-four people
+ * standing inside one another in a column. `arrive()` had its own version of
+ * this for people who walk in, but most of the town starts the day already
+ * indoors and never walks anywhere during a short look, so the pile was what
+ * you actually saw.
+ *
+ * `phase` is the agent's own constant, so a person keeps the same desk.
+ */
+export function spotInside(lot: Lot, phase: number): Spot {
+  // 0.34 of the full width is 0.68 of the half width, which keeps everybody
+  // off the walls without bunching them round the middle.
+  const acrossM = lot.wM * 0.34 * (fract(phase * 3.77) * 2 - 1);
+  const alongM = lot.dM * 0.34 * (fract(phase * 7.13) * 2 - 1);
+  return {
+    x: lot.x + acrossM,
+    z: lot.z + alongM,
+    storey: Math.floor(fract(phase * 11.7) * storeysIn(lot.heightM)),
+  };
+}
+
+/**
+ * How far across an open lot people spread once they get there, as a share of
+ * its shorter side. A park is somewhere to sit about in; a market is a press
+ * round the stalls.
+ */
+export const OUTDOOR_SPREAD = { market: 0.18, park: 0.38, temple: 0.22 } as const;
+
+/**
+ * Where one person stands on an open lot: a market, a park, a temple yard.
+ *
+ * Same reason as `spotInside`. Everybody who starts the day at a market was
+ * being put on its centre point, and in 2300, where the crowd is large and the
+ * plots are few, that showed as five thought pills stacked over one spot with
+ * a single person under them.
+ */
+export function spotOutside(lot: Lot, phase: number, spread: number): Spot {
+  const reach = spread * Math.min(lot.wM, lot.dM) * (0.35 + 0.65 * fract(phase * 5.31));
+  return { x: lot.x + Math.cos(phase) * reach, z: lot.z + Math.sin(phase) * reach, storey: 0 };
+}
+
+function fract(value: number): number {
+  return value - Math.floor(value);
+}
+
 function pick(colours: readonly number[], roll: number): number {
   const index = Math.min(colours.length - 1, Math.floor(roll * colours.length));
   return colours[index] ?? 0x808080;

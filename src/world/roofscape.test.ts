@@ -13,6 +13,7 @@ const STYLE: RoofStyle = {
   wingShare: 0.3,
   crowns: true,
   crownTint: [0x555555],
+  ledge: { everyM: 10, thicknessM: 0.3, overhangM: 0.2, colours: [0x888888] },
   chimney: { share: 0.5, colours: [0x666666] },
   deckTop: { share: 0.3, colours: [0x777777] },
 };

@@ -1,3 +1,4 @@
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BoxGeometry, BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Group, InstancedMesh, Points, PointsMaterial } from 'three';
 import type { ViewState } from '@/core/camera';
 import { AGENTS } from '@/state/altitude';
@@ -248,9 +249,24 @@ function spawn(rng: Rng, pool: VehiclePool, graph: RoadGraph, profile: VehiclePr
   pool.count = pool.capacity;
 }
 
+/**
+ * A body with a cabin sitting on it, rather than one box.
+ *
+ * A vehicle is four metres long and from the roof band that is about six
+ * pixels, so nothing here is a shape you could name. What the second box buys
+ * is a break in the silhouette and a second surface at a different angle, and
+ * those are what let a row of them read as vehicles rather than as coloured
+ * dashes on the road.
+ */
 function boxMesh(size: VehicleKind, capacity: number, name: string): InstancedMesh {
   // Length along local +x, so the heading turns it the way it is going.
-  const geometry = new BoxGeometry(size.lengthM, size.heightM, size.widthM);
+  const bodyH = size.heightM * 0.62;
+  const body = new BoxGeometry(size.lengthM, bodyH, size.widthM);
+  body.translate(0, bodyH / 2 - size.heightM / 2, 0);
+  const cabin = new BoxGeometry(size.lengthM * 0.52, size.heightM - bodyH, size.widthM * 0.88);
+  cabin.translate(-size.lengthM * 0.04, size.heightM / 2 - (size.heightM - bodyH) / 2, 0);
+  const merged = mergeGeometries([body.toNonIndexed(), cabin.toNonIndexed()]);
+  const geometry = merged ?? body;
   const mesh = new InstancedMesh(geometry, createInstanceColorMaterial(), capacity);
   mesh.name = name;
   mesh.frustumCulled = false;

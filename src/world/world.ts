@@ -94,7 +94,7 @@ export interface WorldOptions {
 }
 
 const SUN_DISTANCE_M = 1400;
-const SHADOW = { mapSize: 2048, extentM: 520, nearM: 200, farM: 3600 } as const;
+const SHADOW = { mapSize: 4096, extentM: 560, nearM: 200, farM: 3600 } as const;
 
 /** One era's own city: everything that sinks when the dial moves. */
 interface EraWorld {
@@ -317,6 +317,9 @@ export function createWorld({
     capacity: Math.max(...eras.map((each) => each.population.people)),
     startHour: clock.hourOfDay,
     clothes: first.palette.clothes,
+    // People sealed inside a building are hidden by its walls, so they are not
+    // drawn until it is opened.
+    isOpen: (lotId) => opened.has(lotId),
   });
   scene.add(people.group);
 
@@ -325,6 +328,9 @@ export function createWorld({
     camera,
     canvas,
     set: first.thoughts,
+    // Only people you can see get to think out loud. Click a building open and
+    // the people in it start talking; shut it and they go quiet again.
+    isOpen: (lotId) => opened.has(lotId),
   });
 
   const fromTown = new Color();

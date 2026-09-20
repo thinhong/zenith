@@ -90,3 +90,38 @@ describe('steadyPick', () => {
     expect(steadyPick(3, 'park', 0)).toBe(0);
   });
 });
+
+describe('steadyPick spread', () => {
+  it('does not give a whole building the same thought', () => {
+    // The bug: a 32-bit multiply in doubles loses its low bits once the agent
+    // index is in the thousands, so everybody in one room picked line zero.
+    const picks = new Set<number>();
+    for (let agent = 1600; agent < 1660; agent++) picks.add(steadyPick(agent, 'work', 8));
+    expect(picks.size).toBeGreaterThan(4);
+  });
+
+  it('spreads across the whole list, not just the first few', () => {
+    const counts = new Array<number>(9).fill(0);
+    for (let agent = 0; agent < 9000; agent++) {
+      const pick = steadyPick(agent, 'home', 9);
+      counts[pick] = (counts[pick] ?? 0) + 1;
+    }
+    // Every line gets used, and none of them takes more than a third.
+    expect(Math.min(...counts)).toBeGreaterThan(0);
+    expect(Math.max(...counts)).toBeLessThan(3000);
+  });
+
+  it('keeps neighbours apart, not merely different', () => {
+    let same = 0;
+    for (let agent = 0; agent < 2000; agent++) {
+      if (steadyPick(agent, 'street', 7) === steadyPick(agent + 1, 'street', 7)) same++;
+    }
+    // Chance alone would pair about a seventh of them; anything near all of
+    // them means the hash is not mixing.
+    expect(same).toBeLessThan(500);
+  });
+
+  it('still gives one person the same thought every time', () => {
+    expect(steadyPick(4242, 'temple', 7)).toBe(steadyPick(4242, 'temple', 7));
+  });
+});

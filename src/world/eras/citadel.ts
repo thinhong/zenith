@@ -144,6 +144,7 @@ const ROOF_STYLE: RoofStyle = {
   wingShare: 0.34,
   crowns: false,
   crownTint: [STONE],
+  ledge: { everyM: 4.2, thicknessM: 0.26, overhangM: 0.3, colours: [0x8f8271, 0xa39683] },
   chimney: { share: 0.12, colours: [0x9c8a72] },
   // A flat roof in 1800 is a drying floor, not a plant room.
   deckTop: { share: 0.4, colours: [0xb8a884, 0xa2986f] },

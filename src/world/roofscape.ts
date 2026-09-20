@@ -43,6 +43,13 @@ export interface RoofStyle {
   deckTop: { share: number; colours: readonly number[] };
   /** Colours for a crown. Close to the walls, not a bright cap. */
   crownTint: readonly number[];
+  /**
+   * A thin band round the building every few storeys: a floor slab showing
+   * through, a balcony run, a service level. One flat colour up forty metres
+   * of wall is what makes a tower read as an extruded rectangle, and a line
+   * across it every ten is most of the cure.
+   */
+  ledge: { everyM: number; thicknessM: number; overhangM: number; colours: readonly number[] };
 }
 
 const ROOFS = {
@@ -95,6 +102,7 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
     if (lot.heightM <= style.pitchedMaxM && rng() < style.wingShare) {
       wing(out, rng, lot, style, pitched, shortM);
     }
+    if (!pitched) ledges(out, lot, style);
     // Everything a lot put on its own roof goes away when it is opened.
     for (let i = from; i < out.length; i++) {
       const piece = out[i];
@@ -189,6 +197,28 @@ function flat(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: nu
       dM: radius * 2,
       rotY: 0,
       colour: pick(style.clutter, rng()),
+    });
+  }
+}
+
+/** Thin bands round the building, so a wall is not one unbroken face. */
+function ledges(out: Structure[], lot: Lot, style: RoofStyle): void {
+  const step = style.ledge.everyM;
+  if (step <= 0 || lot.heightM < step * 1.6) return;
+  const colour = pick(style.ledge.colours, lot.jitter);
+  const over = style.ledge.overhangM * 2;
+  for (let y = step; y < lot.heightM - step * 0.4; y += step) {
+    out.push({
+      kind: 'box',
+      x: lot.x,
+      y,
+      z: lot.z,
+      wM: lot.wM + over,
+      hM: style.ledge.thicknessM,
+      dM: lot.dM + over,
+      rotY: 0,
+      colour,
+      lotId: lot.id,
     });
   }
 }

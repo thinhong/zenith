@@ -1,7 +1,7 @@
 import { smoothstep } from '@/state/altitude';
 import { AFTER_THOUGHTS } from '@/thoughts/after-content';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
-import { avenueCorridors, buildBlocks, buildLots, type LotProfile } from '@/world/lots';
+import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
@@ -107,6 +107,7 @@ const ROOF_STYLE: RoofStyle = {
   crowns: true,
   crownTint: [0xdfe6ea, 0xc8d2d8, 0xeef2f4],
   // No fires, so no chimneys.
+  ledge: { everyM: 7.2, thicknessM: 0.3, overhangM: 0.34, colours: [0xeef3f6, 0xd4dde2, 0xaec4d0] },
   chimney: { share: 0, colours: [0xc0c8cc] },
   /**
    * Four roofs in five carry something: a garden, a water tank's descendant,
@@ -165,6 +166,131 @@ const AFTER_LOTS: LotProfile = {
   style: (heightM) => (heightM >= 46 ? 'tower' : heightM >= 16 ? 'slab' : 'low'),
 };
 
+const SKYLINE = {
+  /** A tower has to be at least this tall to be worth bridging to. */
+  bridgeFromM: 55,
+  /** And the two ends no further apart than this. */
+  bridgeSpanM: 62,
+  bridgeWidthM: 3.2,
+  bridgeDeckM: 1.1,
+  /** How high up the shorter of the pair the deck is strung. */
+  bridgeHeight: 0.72,
+  bridgeColour: 0xd6e0e6,
+  /** The guideway that runs the ring road, and how high it stands. */
+  railHeightM: 16,
+  railDeckM: 1.6,
+  railWidthM: 5.5,
+  railColour: 0xc8d4dc,
+  pierEveryM: 34,
+  pierWidthM: 1.5,
+  /** The spire at the centre. */
+  spireHeightM: 250,
+  spireBaseM: 17,
+} as const;
+
+/**
+ * The three things that say "future" here, and none of them is a new shape.
+ *
+ * A bridge strung between two towers, a guideway standing above the ring road,
+ * and one spire taller than anything near it. What makes a skyline read as a
+ * century is not the buildings, which are boxes in every era: it is whether
+ * anything crosses the gaps between them, and whether the eye is given
+ * somewhere to stop. 2020 has neither and 2300 now has both.
+ */
+function skyline(rng: Rng, lots: readonly Lot[], cityRadiusM: number): Structure[] {
+  const out: Structure[] = [];
+
+  // --- bridges between neighbouring towers ---------------------------------
+  const tall = lots.filter((lot) => lot.heightM >= SKYLINE.bridgeFromM);
+  const linked = new Set<number>();
+  for (const from of tall) {
+    if (linked.has(from.id)) continue;
+    let best: Lot | null = null;
+    let bestD: number = SKYLINE.bridgeSpanM;
+    for (const to of tall) {
+      if (to.id === from.id || linked.has(to.id)) continue;
+      const d = Math.hypot(to.x - from.x, to.z - from.z);
+      if (d < bestD) {
+        bestD = d;
+        best = to;
+      }
+    }
+    if (!best || rng() < 0.35) continue;
+    linked.add(from.id);
+    linked.add(best.id);
+    const y = Math.min(from.heightM, best.heightM) * SKYLINE.bridgeHeight;
+    out.push({
+      kind: 'box',
+      x: (from.x + best.x) / 2,
+      y,
+      z: (from.z + best.z) / 2,
+      wM: bestD,
+      hM: SKYLINE.bridgeDeckM,
+      dM: SKYLINE.bridgeWidthM,
+      rotY: -Math.atan2(best.z - from.z, best.x - from.x),
+      colour: SKYLINE.bridgeColour,
+    });
+  }
+
+  // --- a guideway above the ring road ---------------------------------------
+  const radius = cityRadiusM * 0.82;
+  const steps = Math.max(24, Math.round((Math.PI * 2 * radius) / SKYLINE.pierEveryM));
+  for (let i = 0; i < steps; i++) {
+    const a0 = (i / steps) * Math.PI * 2;
+    const a1 = ((i + 1) / steps) * Math.PI * 2;
+    const x0 = Math.cos(a0) * radius;
+    const z0 = Math.sin(a0) * radius;
+    const x1 = Math.cos(a1) * radius;
+    const z1 = Math.sin(a1) * radius;
+    const span = Math.hypot(x1 - x0, z1 - z0);
+    out.push({
+      kind: 'box',
+      x: (x0 + x1) / 2,
+      y: SKYLINE.railHeightM,
+      z: (z0 + z1) / 2,
+      // A touch longer than the gap, so the segments meet rather than dot.
+      wM: span * 1.06,
+      hM: SKYLINE.railDeckM,
+      dM: SKYLINE.railWidthM,
+      rotY: -Math.atan2(z1 - z0, x1 - x0),
+      colour: SKYLINE.railColour,
+    });
+    out.push({
+      kind: 'box',
+      x: x0,
+      y: 0,
+      z: z0,
+      wM: SKYLINE.pierWidthM,
+      hM: SKYLINE.railHeightM,
+      dM: SKYLINE.pierWidthM,
+      rotY: 0,
+      colour: SKYLINE.railColour,
+    });
+  }
+
+  // --- one spire ------------------------------------------------------------
+  const base = SKYLINE.spireBaseM;
+  out.push({ kind: 'box', x: 0, y: 0, z: 0, wM: base, hM: SKYLINE.spireHeightM * 0.62, dM: base, rotY: 0, colour: 0xdfe8ee });
+  out.push({ kind: 'box', x: 0, y: SKYLINE.spireHeightM * 0.62, z: 0, wM: base * 0.66, hM: SKYLINE.spireHeightM * 0.26, dM: base * 0.66, rotY: Math.PI / 4, colour: 0xeaf1f5 });
+  out.push({ kind: 'roof', x: 0, y: SKYLINE.spireHeightM * 0.88, z: 0, wM: base * 0.66, hM: SKYLINE.spireHeightM * 0.06, dM: base * 0.66, rotY: Math.PI / 4, colour: 0xd0dde6 });
+  out.push({ kind: 'box', x: 0, y: SKYLINE.spireHeightM * 0.94, z: 0, wM: 1.1, hM: SKYLINE.spireHeightM * 0.16, dM: 1.1, rotY: 0, colour: 0xb8c8d2 });
+  // A collar of decks part way up, so it is a building and not a mast.
+  for (const at of [0.34, 0.5]) {
+    out.push({
+      kind: 'box',
+      x: 0,
+      y: SKYLINE.spireHeightM * at,
+      z: 0,
+      wM: base * 1.9,
+      hM: 1.4,
+      dM: base * 1.9,
+      rotY: Math.PI / 4,
+      colour: 0xc6d4dc,
+    });
+  }
+  return out;
+}
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const roads = buildRoadGraph(rng, terrain);
   yield;
@@ -175,6 +301,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const structures: Structure[] = buildRoofscape(rng, lots, ROOF_STYLE);
   yield;
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
+  yield;
+  structures.push(...skyline(rng, lots, terrain.cityRadiusM));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

@@ -32,7 +32,7 @@ export const PROPS = {
   kerbGapM: 4,
   lampSpacingM: 46,
   lampHeightM: 6,
-  maxTrees: 9000,
+  maxTrees: 16000,
   maxLamps: 900,
   /** Woods on the plain between the ring road and the mountains. */
   countrysideClumps: 130,
@@ -136,16 +136,18 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
   // Three sides, not five. A trunk is 40 cm wide and was costing twenty
   // triangles each; across the citadel's five thousand trees that was a third
   // of every triangle in the world, for something under a pixel from 200 m.
-  const trunkGeometry = new CylinderGeometry(1, 1, 1, 3);
+  // Five sides now, not three. A trunk is thin, but a three-sided one shows
+  // its flat face whenever the sun is on it.
+  const trunkGeometry = new CylinderGeometry(1, 1, 1, 5);
   trunkGeometry.translate(0, 0.5, 0);
-  const canopyGeometry = new ConeGeometry(1, 1, 6);
+  const canopyGeometry = new ConeGeometry(1, 1, 8, 2);
   canopyGeometry.translate(0, 0.5, 0);
   // A second crown shape, rounder and lower. One shape repeated four thousand
   // times reads as a plantation whatever the sizes are.
-  const roundGeometry = new IcosahedronGeometry(0.5, 0);
+  const roundGeometry = new IcosahedronGeometry(0.5, 1);
   roundGeometry.scale(1, 0.78, 1);
   roundGeometry.translate(0, 0.5, 0);
-  const bushGeometry = new IcosahedronGeometry(0.5, 0);
+  const bushGeometry = new IcosahedronGeometry(0.5, 1);
   bushGeometry.translate(0, 0.45, 0);
   const postGeometry = new CylinderGeometry(1, 1, 1, 3);
   postGeometry.translate(0, 0.5, 0);

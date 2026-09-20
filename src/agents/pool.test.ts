@@ -84,19 +84,26 @@ describe('populate', () => {
     expect(elsewhere / middayPlaced).toBeGreaterThan(0.6);
   });
 
-  it('stands each person at the lot they were placed in', () => {
+  it('stands each person inside the lot they were placed in', () => {
     const { lots, byUse, lotIndex } = city(2);
     const pool = createAgentPool(300);
     const placed = populate(mulberry32(2), pool, { lots, byUse, lotIndex, clothesCount: 6, wanted: 300, startHour: 3 });
+    let offCentre = 0;
     for (let i = 0; i < placed; i++) {
       // Not always home: a night worker starts their shift at 03:00.
       const where = lots[pool.targetLot[i] ?? 0];
       expect(where).toBeDefined();
-      // Positions live in a Float32Array, so a centimetre is the honest tolerance
-      // at the far edge of a 1.4 km city.
-      const gap = Math.hypot(agentX(pool, i) - (where?.x ?? 0), agentZ(pool, i) - (where?.z ?? 0));
-      expect(gap).toBeLessThan(0.01);
+      if (!where) continue;
+      // Inside the footprint, wherever in it they are. Positions live in a
+      // Float32Array, so a centimetre is the honest tolerance at the far edge
+      // of the city.
+      expect(Math.abs(agentX(pool, i) - where.x)).toBeLessThan(where.wM / 2 + 0.01);
+      expect(Math.abs(agentZ(pool, i) - where.z)).toBeLessThan(where.dM / 2 + 0.01);
+      if (Math.hypot(agentX(pool, i) - where.x, agentZ(pool, i) - where.z) > 0.4) offCentre++;
     }
+    // And spread across the floor rather than stacked on its centre, which is
+    // what an opened building used to show: one column of people.
+    expect(offCentre).toBeGreaterThan(placed * 0.8);
   });
 
   it('spreads the schedule offsets so the city does not move as one', () => {

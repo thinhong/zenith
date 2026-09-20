@@ -6,3 +6,6 @@ dist/
 
 # Cowork drops copies of files sent to the chat here; the originals live in docs/
 Claude outputs/
+
+# The build is shuttled to the Linux workspace as a tarball; never committed.
+dist.tgz

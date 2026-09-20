@@ -42,7 +42,7 @@ import {
   writeInstanceMatrix,
 } from '@/world/instanced';
 import { figureGeometry } from '@/agents/figure';
-import { storeyHeightM, storeysIn } from '@/world/interior';
+import { OUTDOOR_SPREAD, spotInside, spotOutside, storeyHeightM, storeysIn } from '@/world/interior';
 import { nearestNode, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 
@@ -58,7 +58,7 @@ import { range, type Rng } from '@/world/seed';
  */
 const PEOPLE = {
   /** Most figures drawn at once. Only those near the look-at point are. */
-  maxFigures: 2400,
+  maxFigures: 4200,
   /** How many routes may be worked out in one frame. */
   /**
    * Routes worked out in one frame. The median frame costs about 1 ms; the
@@ -73,8 +73,6 @@ const PEOPLE = {
   sitScale: 0.6,
   /** A person is 1.7 m tall (PLAN.md 5). */
   heightM: 1.7,
-  /** How far across a lot people spread once they arrive. */
-  spread: { market: 0.18, park: 0.38, temple: 0.22 },
   /**
    * A person is 1.7 m tall, which past about 300 m is under a pixel, so above
    * that they are drawn as dots instead. The dots are what the aerial view is
@@ -101,6 +99,8 @@ export interface NearbyPerson {
   headM: number;
   place: Destination | 'street';
   distanceM: number;
+  /** The lot this person is inside, or -1 when they are out of doors. */
+  insideLot: number;
 }
 
 /** Everything that changes when the world becomes a different era. */
@@ -120,9 +120,23 @@ export interface People {
   count: number;
   stats: PeopleStats;
   update: (dtS: number, hourOfDay: number, view: ViewState) => void;
-  /** The nearest people who are out of doors, nearest first. */
-  /** The people nearest a point, indoors or out. Thoughts are picked from these. */
-  nearby: (x: number, z: number, radiusM: number, max: number) => NearbyPerson[];
+  /**
+   * The people nearest a point, nearest first.
+   *
+   * `visible` decides whether somebody indoors counts. Thoughts pass the set of
+   * opened buildings, because a pill floating over a sealed roof reads as a
+   * caption pinned to the architecture rather than to a person: the thought has
+   * to belong to somebody you can see. It is applied inside the distance loop,
+   * not to the result, or six sealed clerks standing closer than the street
+   * would fill every slot and leave the visible crowd silent.
+   */
+  nearby: (
+    x: number,
+    z: number,
+    radiusM: number,
+    max: number,
+    visible?: (lotId: number) => boolean,
+  ) => NearbyPerson[];
   /**
    * Moves the whole population onto a different era's layout, in place. The
    * pool and its buffers are kept, because building four thousand people again
@@ -154,10 +168,19 @@ export interface PeopleOptions {
    * so mid-tones vanish.
    */
   clothes: readonly number[];
+  /**
+   * Whether a building is standing open. People inside a sealed one are behind
+   * a wall and depth-tested away, so drawing them is work nobody sees: at
+   * street level in 2020 that was four thousand figures and three quarters of
+   * a million triangles hidden inside offices. Open a building and its people
+   * appear, which is the only visible effect this has.
+   */
+  isOpen?: (lotId: number) => boolean;
 }
 
 export function createPeople(options: PeopleOptions): People {
   const rng = options.rng;
+  const isOpen = options.isOpen;
   // Reassigned when the era changes; see reseat().
   let { graph, lots, byUse, lotNodes, lotIndex } = options;
   let clothes = options.clothes;
@@ -267,24 +290,18 @@ export function createPeople(options: PeopleOptions): People {
       return;
     }
     if (isIndoors(use)) {
-      // Through the door, and then somewhere of their own inside the building
-      // rather than all standing on the same spot at its centre. They are
-      // still drawn: the ghost pass shows them through the walls.
-      const phase = pool.phase[index] ?? 0;
-      const acrossM = (lot.wM * 0.34) * (fract(phase * 3.77) * 2 - 1);
-      const alongM = (lot.dM * 0.34) * (fract(phase * 7.13) * 2 - 1);
-      // And on a floor of their own. A building of thirty metres has nine of
-      // them, and everybody standing on the ground one is what made an opened
-      // building look like an empty shell with a crowd in the basement.
-      pool.storey[index] = Math.floor(fract(phase * 11.7) * storeysIn(lot.heightM));
+      // Through the door, and then to a spot on a floor of their own rather
+      // than to the centre of the building with everybody else (interior.ts).
+      const spot = spotInside(lot, pool.phase[index] ?? 0);
+      pool.storey[index] = spot.storey;
       pool.state[index] = STATE.inside;
-      placeAgent(pool, index, lot.x + acrossM, lot.z + alongM);
+      placeAgent(pool, index, spot.x, spot.z);
       return;
     }
-    const phase = pool.phase[index] ?? 0;
-    const spread = use === 'park' ? PEOPLE.spread.park : use === 'market' ? PEOPLE.spread.market : PEOPLE.spread.temple;
-    const reach = spread * Math.min(lot.wM, lot.dM) * (0.35 + 0.65 * fract(phase * 5.31));
-    placeAgent(pool, index, lot.x + Math.cos(phase) * reach, lot.z + Math.sin(phase) * reach);
+    const spread =
+      use === 'park' ? OUTDOOR_SPREAD.park : use === 'market' ? OUTDOOR_SPREAD.market : OUTDOOR_SPREAD.temple;
+    const spot = spotOutside(lot, pool.phase[index] ?? 0, spread);
+    placeAgent(pool, index, spot.x, spot.z);
     pool.state[index] = use === 'park' ? STATE.sitting : STATE.standing;
   }
 
@@ -346,6 +363,8 @@ export function createPeople(options: PeopleOptions): People {
     let slot = 0;
     for (let i = 0; i < pool.count && slot < PEOPLE.maxFigures; i++) {
       const state = pool.state[i] ?? 0;
+      // Behind a wall: the depth test would throw the figure away anyway.
+      if (state === STATE.inside && isOpen && !isOpen(pool.targetLot[i] ?? -1)) continue;
       const floorY = state === STATE.inside ? storeyHeightM(pool.storey[i] ?? 0) : 0;
       const x = agentX(pool, i);
       const z = agentZ(pool, i);
@@ -401,14 +420,24 @@ export function createPeople(options: PeopleOptions): People {
     stats.drawn = written;
   }
 
-  function nearby(x: number, z: number, radiusM: number, max: number): NearbyPerson[] {
+  function nearby(
+    x: number,
+    z: number,
+    radiusM: number,
+    max: number,
+    visible?: (lotId: number) => boolean,
+  ): NearbyPerson[] {
     const found: NearbyPerson[] = [];
     const limitSquared = radiusM * radiusM;
     for (let i = 0; i < pool.count; i++) {
       const state = pool.state[i] ?? 0;
-      // Indoors counts. A thought from inside a house is the better half of
-      // them, and leaving those people out is what put thought pills over
-      // roofs with nobody underneath.
+      // Indoors counts, but only when the building is standing open. A thought
+      // from inside a house is the better half of them, and dropping those
+      // people left the citadel and 2300 nearly silent at midday, when most of
+      // the crowd is at a desk. Keeping all of them was the opposite fault:
+      // pills hanging over sealed roofs with nobody underneath.
+      const insideLot = state === STATE.inside ? (pool.targetLot[i] ?? -1) : -1;
+      if (insideLot >= 0 && visible && !visible(insideLot)) continue;
       const px = agentX(pool, i);
       const pz = agentZ(pool, i);
       const dx = px - x;
@@ -422,9 +451,17 @@ export function createPeople(options: PeopleOptions): People {
         agent: i,
         x: px,
         z: pz,
-        headM: PEOPLE.heightM * (state === STATE.sitting ? PEOPLE.sitScale : 1),
+        // Above the floor they are on, not above the ground. An indoor person
+        // stands on a storey now, so a clerk on the eighth floor was having
+        // their thought drawn down at the pavement, detached from them and
+        // sitting over the building they were inside. It shows worst in the
+        // citadel and in 2300, where most of the crowd is indoors.
+        headM:
+          (state === STATE.inside ? storeyHeightM(pool.storey[i] ?? 0) : 0) +
+          PEOPLE.heightM * (state === STATE.sitting ? PEOPLE.sitScale : 1),
         place: state === STATE.walking ? 'street' : destinationAt(pool.currentUse[i] ?? 0),
         distanceM,
+        insideLot,
       };
       let at = found.length;
       while (at > 0 && (found[at - 1]?.distanceM ?? 0) > distanceM) at--;
