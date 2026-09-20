@@ -34,6 +34,8 @@ export interface ThoughtStats {
 export interface Thoughts {
   update: (dtS: number, view: ViewState) => void;
   stats: ThoughtStats;
+  /** Swaps in another era's worries. Anything showing is dropped. */
+  setThoughts: (next: ThoughtSet) => void;
 }
 
 export interface ThoughtsOptions {
@@ -46,7 +48,7 @@ export interface ThoughtsOptions {
 
 export function createThoughts(options: ThoughtsOptions): Thoughts {
   const { people, camera, canvas } = options;
-  const set = options.set ?? MODERN_THOUGHTS;
+  let set = options.set ?? MODERN_THOUGHTS;
 
   const container = document.createElement('div');
   container.id = 'thoughts';
@@ -76,6 +78,11 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
 
   return {
     stats,
+    setThoughts: (next) => {
+      set = next;
+      slots = [];
+      hideAll();
+    },
     update: (dtS, view) => {
       elapsedS += dtS;
       const strength = detailFactor(DETAIL.thoughts, view.altitudeM);

@@ -72,16 +72,6 @@ const PEOPLE = {
   dotSizePx: 2.6,
 } as const;
 
-/**
- * Modern-era clothing. Moves into eras/modern.ts in M5.
- *
- * Deliberately light: a figure is 1.7 m tall, which is five to eight pixels
- * from the roof band, and the streets it walks on are dark. Mid-tones vanish.
- */
-const CLOTHES: readonly number[] = [
-  0xd8dce2, 0xc9bfb2, 0xa9bac6, 0xd08a6e, 0x9aa6b2, 0xe0cfa4, 0xb6a9c2, 0xc3cbb4,
-];
-
 export interface PeopleStats {
   updateMs: number;
   outside: number;
@@ -100,6 +90,18 @@ export interface NearbyPerson {
   distanceM: number;
 }
 
+/** Everything that changes when the world becomes a different era. */
+export interface ReseatOptions {
+  graph: RoadGraph;
+  lots: readonly Lot[];
+  byUse: Record<LotUse, number[]>;
+  lotNodes: Int32Array;
+  lotIndex: LotIndex;
+  clothes: readonly number[];
+  wanted: number;
+  startHour: number;
+}
+
 export interface People {
   group: Group;
   count: number;
@@ -107,6 +109,12 @@ export interface People {
   update: (dtS: number, hourOfDay: number, view: ViewState) => void;
   /** The nearest people who are out of doors, nearest first. */
   nearbyOutside: (x: number, z: number, radiusM: number, max: number) => NearbyPerson[];
+  /**
+   * Moves the whole population onto a different era's layout, in place. The
+   * pool and its buffers are kept, because building four thousand people again
+   * in one frame is exactly the hitch the era change is trying to avoid.
+   */
+  reseat: (next: ReseatOptions) => void;
 }
 
 export interface PeopleOptions {
@@ -117,24 +125,39 @@ export interface PeopleOptions {
   lotNodes: Int32Array;
   lotIndex: LotIndex;
   wanted: number;
+  /**
+   * How many the pool holds. An era change reuses the pool rather than
+   * rebuilding it, so it is allocated for the largest era: without this a city
+   * entered from the citadel would hold 2600 people where it wants 4000.
+   */
+  capacity: number;
   /** The hour the world opens at (state/clock.ts). */
   startHour: number;
+  /**
+   * The era's clothing. Deliberately light in every era: a figure is 1.7 m
+   * tall, five to eight pixels from the roof band, and the streets are dark,
+   * so mid-tones vanish.
+   */
+  clothes: readonly number[];
 }
 
 export function createPeople(options: PeopleOptions): People {
-  const { rng, graph, lots, byUse, lotNodes, lotIndex } = options;
+  const rng = options.rng;
+  // Reassigned when the era changes; see reseat().
+  let { graph, lots, byUse, lotNodes, lotIndex } = options;
+  let clothes = options.clothes;
+  let palette = paletteToLinear(clothes);
 
-  const pool = createAgentPool(Math.min(options.wanted, POOL.maxPeople));
+  const pool = createAgentPool(Math.min(Math.max(options.capacity, options.wanted), POOL.maxPeople));
   populate(rng, pool, {
     lots,
     byUse,
     lotIndex,
-    clothesCount: CLOTHES.length,
+    clothesCount: clothes.length,
     wanted: options.wanted,
     startHour: options.startHour,
   });
 
-  const palette = paletteToLinear(CLOTHES);
   const group = new Group();
   group.name = 'people';
 
@@ -350,9 +373,29 @@ export function createPeople(options: PeopleOptions): People {
 
   return {
     group,
-    count: pool.count,
+    get count(): number {
+      return pool.count;
+    },
     stats,
     nearbyOutside,
+    reseat: (next) => {
+      graph = next.graph;
+      lots = next.lots;
+      byUse = next.byUse;
+      lotNodes = next.lotNodes;
+      lotIndex = next.lotIndex;
+      clothes = next.clothes;
+      palette = paletteToLinear(clothes);
+      pending.length = 0;
+      populate(rng, pool, {
+        lots,
+        byUse,
+        lotIndex,
+        clothesCount: clothes.length,
+        wanted: next.wanted,
+        startHour: next.startHour,
+      });
+    },
     update: (dtS, hourOfDay, view) => {
       const started = performance.now();
       frame++;

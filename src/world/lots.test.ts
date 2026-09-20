@@ -12,7 +12,7 @@ import {
   type Rect,
 } from './lots';
 import { buildRoadGraph } from './roads';
-import { mulberry32 } from './seed';
+import { mulberry32, range } from './seed';
 import { buildTerrain, type TerrainSpec } from './terrain';
 
 function cityOf(seed: number): { terrain: TerrainSpec; blocks: Rect[]; lots: Lot[] } {
@@ -171,5 +171,27 @@ describe('buildLotIndex', () => {
   it('returns -1 when nothing of that use exists', () => {
     const { lots } = cityOf(2);
     expect(buildLotIndex(lots).nearest('water', 0, 0)).toBe(-1);
+  });
+});
+
+describe('buildLotIndex', () => {
+  it('agrees with a full scan, including from outside the city', () => {
+    const terrain = buildTerrain(mulberry32(6));
+    const graph = buildRoadGraph(mulberry32(6), terrain);
+    const lots = buildLots(mulberry32(6), terrain, buildBlocks(terrain), avenueCorridors(graph));
+    const index = buildLotIndex(lots);
+    const rng = mulberry32(31);
+    for (let i = 0; i < 300; i++) {
+      const x = range(rng, -4000, 4000);
+      const z = range(rng, -4000, 4000);
+      let scanned = Infinity;
+      for (const lot of lots) {
+        if (lot.use !== 'market') continue;
+        scanned = Math.min(scanned, (lot.x - x) ** 2 + (lot.z - z) ** 2);
+      }
+      const found = lots[index.nearest('market', x, z)];
+      if (!found) throw new Error('no market found');
+      expect((found.x - x) ** 2 + (found.z - z) ** 2).toBeCloseTo(scanned, 6);
+    }
   });
 });

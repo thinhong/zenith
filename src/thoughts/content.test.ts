@@ -5,16 +5,26 @@ import {
   THOUGHT_PLACES,
   thoughtsFor,
   type ThoughtPlace,
+  type ThoughtSet,
 } from './content';
+import { CITADEL_THOUGHTS } from './citadel-content';
 
-const ALL = THOUGHT_PLACES.flatMap((place) => MODERN_THOUGHTS[place]);
+// Every era's set has to hold to the same rules, so they are tested together.
+const SETS: ReadonlyArray<[string, ThoughtSet, number]> = [
+  ['modern', MODERN_THOUGHTS, 60],
+  ['citadel', CITADEL_THOUGHTS, 40],
+];
+const ALL = SETS.flatMap(([, set]) => THOUGHT_PLACES.flatMap((place) => set[place]));
 
 describe('MODERN_THOUGHTS', () => {
   it('has a set for every place and enough of them overall', () => {
-    for (const place of THOUGHT_PLACES) {
-      expect(MODERN_THOUGHTS[place].length).toBeGreaterThanOrEqual(10);
+    for (const [name, set, least] of SETS) {
+      const total = THOUGHT_PLACES.flatMap((place) => set[place]);
+      expect(total.length, name).toBeGreaterThanOrEqual(least);
+      for (const place of THOUGHT_PLACES) {
+        expect(set[place].length, `${name} ${place}`).toBeGreaterThanOrEqual(7);
+      }
     }
-    expect(ALL.length).toBeGreaterThanOrEqual(60);
   });
 
   it('keeps every thought to one short line', () => {
@@ -40,8 +50,21 @@ describe('MODERN_THOUGHTS', () => {
     for (const text of ALL) expect(/\b(he|she|they)\s+(thinks|wonders|feels)\b/i.test(text)).toBe(false);
   });
 
-  it('repeats nothing', () => {
-    expect(new Set(ALL).size).toBe(ALL.length);
+  it('repeats nothing inside one era', () => {
+    for (const [name, set] of SETS) {
+      const texts = THOUGHT_PLACES.flatMap((place) => set[place]);
+      expect(new Set(texts).size, name).toBe(texts.length);
+    }
+  });
+
+  it('carries a few of the same worries from one era to the next', () => {
+    // The clothes change, the worries do not (PLAN.md 1). A handful of lines
+    // deliberately appear in both sets, and that is the whole idea.
+    const modern = new Set(THOUGHT_PLACES.flatMap((place) => MODERN_THOUGHTS[place]));
+    const citadel = THOUGHT_PLACES.flatMap((place) => CITADEL_THOUGHTS[place]);
+    const shared = citadel.filter((text) => modern.has(text));
+    expect(shared.length).toBeGreaterThanOrEqual(3);
+    expect(shared.length).toBeLessThan(citadel.length / 4);
   });
 
   it('keeps out what PLAN.md 7 says to keep out', () => {

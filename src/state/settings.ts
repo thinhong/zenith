@@ -1,4 +1,5 @@
 import { ALTITUDE } from '@/state/altitude';
+import { ERA_ORDER, type EraId } from '@/world/eras';
 
 /**
  * Settings read once at start-up. `seed` is the shareable one (PLAN.md M1
@@ -16,6 +17,8 @@ export interface Settings {
   startAltitudeM: number | null;
   /** Look at this point on the ground instead of the centre, as `?at=x,z`. */
   startTarget: { x: number; z: number } | null;
+  /** Open in this era, as `?era=citadel`. `null` opens in the usual one. */
+  startEra: EraId | null;
 }
 
 export function parseSettings(search: string, reducedMotion: boolean): Settings {
@@ -27,6 +30,7 @@ export function parseSettings(search: string, reducedMotion: boolean): Settings 
     paused: q.get('pause') === '1',
     startAltitudeM: clampOrNull(finiteOrNull(q.get('alt')), ALTITUDE.min, ALTITUDE.max),
     startTarget: parsePoint(q.get('at')),
+    startEra: parseEra(q.get('era')),
   };
 }
 
@@ -35,6 +39,12 @@ export function readSettings(): Settings {
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return parseSettings(window.location.search, reduced);
+}
+
+function parseEra(raw: string | null): EraId | null {
+  if (raw === null) return null;
+  const found = ERA_ORDER.find((id) => id === raw);
+  return found ?? null;
 }
 
 function parsePoint(raw: string | null): { x: number; z: number } | null {

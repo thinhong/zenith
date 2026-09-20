@@ -28,6 +28,31 @@ export const ROADS = {
   bridgeSpacingM: 450,
 } as const;
 
+/** The shape of one era's network. Everything an era may vary lives here. */
+export interface RoadOptions {
+  pitchM: number;
+  streetWidthM: number;
+  avenueWidthM: number;
+  ringWidthM: number;
+  avenueCount: number;
+  ringNodes: number;
+  /** Nothing is built beyond this. Defaults to the terrain's city radius. */
+  cityRadiusM: number;
+}
+
+export function roadOptions(terrain: TerrainSpec, over: Partial<RoadOptions> = {}): RoadOptions {
+  return {
+    pitchM: ROADS.pitchM,
+    streetWidthM: ROADS.streetWidthM,
+    avenueWidthM: ROADS.avenueWidthM,
+    ringWidthM: ROADS.ringWidthM,
+    avenueCount: ROADS.avenueCount,
+    ringNodes: ROADS.ringNodes,
+    cityRadiusM: terrain.cityRadiusM,
+    ...over,
+  };
+}
+
 export type RoadKind = 'street' | 'avenue' | 'ring';
 
 export interface RoadNode {
@@ -65,7 +90,12 @@ export interface Point {
 
 const TAU = Math.PI * 2;
 
-export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
+export function buildRoadGraph(
+  rng: Rng,
+  terrain: TerrainSpec,
+  over: Partial<RoadOptions> = {},
+): RoadGraph {
+  const shape = roadOptions(terrain, over);
   const points: Point[] = [];
   const edges: DraftEdge[] = [];
   const edgeByKey = new Map<string, number>();
@@ -95,12 +125,12 @@ export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
 
   // --- the grid ---------------------------------------------------------
   const gridId = new Map<string, number>();
-  const half = Math.floor(terrain.cityRadiusM / ROADS.pitchM);
+  const half = Math.floor(shape.cityRadiusM / shape.pitchM);
   for (let i = -half; i <= half; i++) {
     for (let j = -half; j <= half; j++) {
-      const x = i * ROADS.pitchM;
-      const z = j * ROADS.pitchM;
-      if (!isBuildable(terrain, x, z, ROADS.bankMarginM)) continue;
+      const x = i * shape.pitchM;
+      const z = j * shape.pitchM;
+      if (!withinCity(terrain, shape, x, z)) continue;
       gridId.set(`${i},${j}`, addNode(x, z));
     }
   }
@@ -112,17 +142,17 @@ export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
       if (a === undefined) continue;
       const right = gridId.get(`${i + 1},${j}`);
       const down = gridId.get(`${i},${j + 1}`);
-      if (right !== undefined) addEdge(a, right, 'street', ROADS.streetWidthM);
-      if (down !== undefined) addEdge(a, down, 'street', ROADS.streetWidthM);
+      if (right !== undefined) addEdge(a, right, 'street', shape.streetWidthM);
+      if (down !== undefined) addEdge(a, down, 'street', shape.streetWidthM);
     }
   }
 
   // --- the ring road ----------------------------------------------------
   const ringIds: (number | null)[] = [];
-  for (let k = 0; k < ROADS.ringNodes; k++) {
-    const a = (k / ROADS.ringNodes) * TAU;
-    const x = Math.cos(a) * terrain.cityRadiusM;
-    const z = Math.sin(a) * terrain.cityRadiusM;
+  for (let k = 0; k < shape.ringNodes; k++) {
+    const a = (k / shape.ringNodes) * TAU;
+    const x = Math.cos(a) * shape.cityRadiusM;
+    const z = Math.sin(a) * shape.cityRadiusM;
     const wet = waterDepthAt(terrain.water, x, z) > -ROADS.bankMarginM;
     ringIds.push(wet ? null : addNode(x, z));
   }
@@ -130,7 +160,7 @@ export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
     const a = ringIds[k];
     const b = ringIds[(k + 1) % ringIds.length];
     if (a === null || a === undefined || b === null || b === undefined) continue;
-    addEdge(a, b, 'ring', ROADS.ringWidthM);
+    addEdge(a, b, 'ring', shape.ringWidthM);
   }
   for (const id of ringIds) {
     if (id === null || id === undefined) continue;
@@ -139,33 +169,33 @@ export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
     const near = nearestPoint(points, gridCount, p.x, p.z);
     const q = near >= 0 ? points[near] : undefined;
     if (q && Math.hypot(q.x - p.x, q.z - p.z) <= ROADS.ringSpurM) {
-      addEdge(id, near, 'street', ROADS.streetWidthM);
+      addEdge(id, near, 'street', shape.streetWidthM);
     }
   }
 
   // --- diagonal avenues -------------------------------------------------
-  for (let k = 0; k < ROADS.avenueCount; k++) {
+  for (let k = 0; k < shape.avenueCount; k++) {
     // Angles well away from the grid axes, or an avenue is just a wider street.
     const base = range(rng, 0.45, 1.12);
     const angle = k % 2 === 0 ? base : Math.PI - base;
     const offsetM = range(rng, -ROADS.avenueOffsetM, ROADS.avenueOffsetM);
     const dx = Math.cos(angle);
     const dz = Math.sin(angle);
-    const step = ROADS.pitchM * 1.45;
+    const step = shape.pitchM * 1.45;
     let previous = -1;
-    for (let t = -terrain.cityRadiusM; t <= terrain.cityRadiusM; t += step) {
+    for (let t = -shape.cityRadiusM; t <= shape.cityRadiusM; t += step) {
       const x = dx * t - dz * offsetM;
       const z = dz * t + dx * offsetM;
       const id = nearestPoint(points, gridCount, x, z);
       const p = id >= 0 ? points[id] : undefined;
-      if (!p || Math.hypot(p.x - x, p.z - z) > ROADS.pitchM) {
+      if (!p || Math.hypot(p.x - x, p.z - z) > shape.pitchM) {
         // No grid node here (water, or outside the city): start a new run.
         previous = -1;
         continue;
       }
       const q = previous >= 0 ? points[previous] : undefined;
       if (q && previous !== id && Math.hypot(p.x - q.x, p.z - q.z) <= step * 1.4) {
-        addEdge(previous, id, 'avenue', ROADS.avenueWidthM);
+        addEdge(previous, id, 'avenue', shape.avenueWidthM);
       }
       previous = id;
     }
@@ -173,10 +203,21 @@ export function buildRoadGraph(rng: Rng, terrain: TerrainSpec): RoadGraph {
 
   // --- bridges ----------------------------------------------------------
   for (const bridge of planBridges(points, edges)) {
-    addEdge(bridge.a, bridge.b, 'street', ROADS.streetWidthM);
+    addEdge(bridge.a, bridge.b, 'street', shape.streetWidthM);
   }
 
   return largestComponent(createGraph(points, edges));
+}
+
+/** Inside this era's built area and far enough from the water. */
+export function withinCity(
+  terrain: TerrainSpec,
+  shape: RoadOptions,
+  x: number,
+  z: number,
+): boolean {
+  if (Math.hypot(x, z) > shape.cityRadiusM) return false;
+  return isBuildable(terrain, x, z, ROADS.bankMarginM);
 }
 
 /** Lengths and adjacency from plain points and edges. Does not drop anything. */
@@ -232,6 +273,63 @@ export function largestComponent(graph: RoadGraph): RoadGraph {
     edges.push({ a, b, kind: e.kind, widthM: e.widthM });
   }
   return createGraph(points, edges);
+}
+
+/** Cell size of the road-node lookup grid, in metres. */
+export const NODE_INDEX_CELL_M = 150;
+
+export interface NodeIndex {
+  /** The nearest road node to a point, or -1 if the graph is empty. */
+  nearest: (x: number, z: number) => number;
+}
+
+/**
+ * A grid over the road nodes. `nearestNode` scans the whole graph, which is
+ * fine once but not once per lot: the citadel has five thousand lots and a
+ * thousand nodes, and the full scan costs 26 ms of a single frame.
+ */
+export function buildNodeIndex(graph: RoadGraph, cellM: number = NODE_INDEX_CELL_M): NodeIndex {
+  const buckets = new Map<string, number[]>();
+  for (const node of graph.nodes) {
+    const key = `${Math.floor(node.x / cellM)},${Math.floor(node.z / cellM)}`;
+    const list = buckets.get(key);
+    if (list) list.push(node.id);
+    else buckets.set(key, [node.id]);
+  }
+
+  return {
+    nearest: (x, z) => {
+      const cx = Math.floor(x / cellM);
+      const cz = Math.floor(z / cellM);
+      let best = -1;
+      let bestDistance = Infinity;
+      for (let ring = 0; ring <= 256; ring++) {
+        // Nothing in this ring or beyond can be nearer than its inner edge, so
+        // once that edge is further than the best so far, the search is done.
+        // Stopping one ring after the first hit is wrong: from outside the
+        // city the first hit can be fifteen rings out and the true nearest
+        // several rings further still.
+        if (ring > 1 && ((ring - 1) * cellM) ** 2 > bestDistance) break;
+        for (let dx = -ring; dx <= ring; dx++) {
+          for (let dz = -ring; dz <= ring; dz++) {
+            if (ring > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+            const list = buckets.get(`${cx + dx},${cz + dz}`);
+            if (!list) continue;
+            for (const id of list) {
+              const node = graph.nodes[id];
+              if (!node) continue;
+              const distance = (node.x - x) ** 2 + (node.z - z) ** 2;
+              if (distance < bestDistance) {
+                bestDistance = distance;
+                best = id;
+              }
+            }
+          }
+        }
+      }
+      return best;
+    },
+  };
 }
 
 export function nearestNode(graph: RoadGraph, x: number, z: number): number {

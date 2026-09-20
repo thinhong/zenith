@@ -2,21 +2,22 @@ import { Color, InstancedMesh, Matrix4, MeshLambertMaterial, PlaneGeometry, Quat
 import { LAYER_Y } from '@/world/ground';
 import type { RoadGraph } from '@/world/roads';
 
-/** Modern-era road colour. Moves into eras/modern.ts in M5. */
-export const ROAD_COLOR = 0x474a50;
-
 /**
  * Every road in one InstancedMesh: a flat quad per edge, plus a square at each
  * junction so corners do not show a notch. One draw call for the whole network.
  */
-export function createRoadMesh(graph: RoadGraph): InstancedMesh {
+export function createRoadMesh(
+  graph: RoadGraph,
+  colour: number,
+): InstancedMesh<PlaneGeometry, MeshLambertMaterial> {
   const geometry = new PlaneGeometry(1, 1);
   geometry.rotateX(-Math.PI / 2);
 
   const count = graph.edges.length + graph.nodes.length;
   const mesh = new InstancedMesh(
     geometry,
-    new MeshLambertMaterial({ color: new Color(ROAD_COLOR) }),
+    // Transparent so two eras can cross-fade over one another.
+    new MeshLambertMaterial({ color: new Color(colour), transparent: true, depthWrite: false }),
     Math.max(count, 1),
   );
   mesh.name = 'roads';

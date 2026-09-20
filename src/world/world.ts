@@ -2,92 +2,112 @@ import {
   Color,
   DirectionalLight,
   Fog,
+  Group,
   HemisphereLight,
   SRGBColorSpace,
   Scene,
   type PerspectiveCamera,
 } from 'three';
+import { createPeople, type People } from '@/agents/people';
+import { createTraffic, type Traffic } from '@/agents/traffic';
 import { DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, type Clock } from '@/state/clock';
-import { createPeople } from '@/agents/people';
-import { createTraffic } from '@/agents/traffic';
-import { createThoughts, type Thoughts } from '@/thoughts/thoughts';
-import { createBuildings } from '@/world/buildings';
-import { createGround } from '@/world/ground';
 import {
-  avenueCorridors,
-  buildBlocks,
+  advanceEraChange,
+  beginEraChange,
+  createEraState,
+  eraEase,
+  isChanging,
+  RESEAT_AT,
+  type EraState,
+} from '@/state/era';
+import { createBuildings, type Buildings } from '@/world/buildings';
+import {
+  availableEras,
+  DEFAULT_ERA,
+  eraById,
+  type Era,
+  type EraId,
+  type EraLayout,
+} from '@/world/eras';
+import { createGround, type Ground } from '@/world/ground';
+import {
   buildLotIndex,
-  buildLots,
   lotRoadNodes,
   lotsByUse,
   type Lot,
+  type LotIndex,
+  type LotUse,
 } from '@/world/lots';
-import { createProps } from '@/world/props';
+import { collectProps, createProps, type Props } from '@/world/props';
 import { createRoadMesh } from '@/world/road-mesh';
-import { buildRoadGraph, type RoadGraph } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
+import { createStructures } from '@/world/structures';
 import { skyAt, type Rgb } from '@/world/sky';
 import { buildTerrain, type TerrainSpec } from '@/world/terrain';
+import { createThoughts, type Thoughts } from '@/thoughts/thoughts';
 
 /**
- * Assembles one world from a seed and keeps it in step with altitude and the
- * day clock. Systems never talk to each other; they all read the same two
- * inputs (PLAN.md 4.1).
+ * Assembles one world from a seed and keeps it in step with altitude, the day
+ * clock and the era. Systems never talk to each other; they all read the same
+ * shared state (PLAN.md 4.1).
+ *
+ * The terrain is built once and shared by every era. Everything else, from the
+ * roads to what people are worrying about, belongs to the era and is thrown
+ * away when it sinks (PLAN.md 4.6).
  */
 export interface World {
   scene: Scene;
   clock: Clock;
   terrain: TerrainSpec;
-  roads: RoadGraph;
-  lots: readonly Lot[];
+  era: EraState;
+  eras: readonly Era[];
+  /** Starts a change to another era. Ignored if it is already showing. */
+  showEra: (id: EraId) => void;
+  /** The era being built, if one is. The bar lights that stop while it waits. */
+  pendingEra: () => EraId | null;
   update: (dtS: number, elapsedS: number, view: ViewState) => void;
-  /** One line for the debug HUD. */
   info: () => string;
 }
 
 export interface WorldOptions {
   seed: number;
-  /** Start the day clock here instead of at the usual opening hour. */
   startHour: number | null;
-  /** Freeze the clock (debug, see state/settings.ts). */
+  startEra: EraId | null;
   paused: boolean;
-  /** Needed to project thought labels to the screen. */
   camera: PerspectiveCamera;
-  /** The element the scene is drawn into, for its size in pixels. */
   canvas: HTMLElement;
 }
 
-/**
- * The sun is directional, so this distance only decides where its shadow camera
- * sits. Close enough to keep the depth range tight, far enough to clear the
- * tallest tower.
- */
 const SUN_DISTANCE_M = 1400;
-
-/**
- * Shadows are expensive and invisible from altitude, so one small, sharp map
- * follows the viewer and switches off above the roof band (PLAN.md 5).
- */
 const SHADOW = { mapSize: 1024, extentM: 280, nearM: 200, farM: 2800 } as const;
 
-/**
- * How many people to place, the full pool from PLAN.md M2. Roughly a third are
- * out of doors at any moment, which across a city 2.8 km wide is about as
- * sparse as it can be and still read as inhabited.
- */
-const POPULATION = 4000;
+/** One era's own city: everything that sinks when the dial moves. */
+interface EraWorld {
+  era: Era;
+  layout: EraLayout;
+  group: Group;
+  byUse: Record<LotUse, number[]>;
+  lotNodes: Int32Array;
+  lotIndex: LotIndex;
+  buildings: Buildings;
+  props: Props;
+  setRoadOpacity: (value: number) => void;
+}
 
-/** Vehicles on the road at rush hour. Fewer at other times (agents/traffic.ts). */
-const FLEET = 800;
-
-export function createWorld({ seed, startHour, paused, camera, canvas }: WorldOptions): World {
-  const rng = mulberry32(seed);
-  const terrain = buildTerrain(rng);
-  const roads = buildRoadGraph(rng, terrain);
-  const lots = buildLots(rng, terrain, buildBlocks(terrain), avenueCorridors(roads));
-  const byUse = lotsByUse(lots);
+export function createWorld({
+  seed,
+  startHour,
+  startEra,
+  paused,
+  camera,
+  canvas,
+}: WorldOptions): World {
+  const terrain = buildTerrain(mulberry32(seed));
+  const eras = availableEras();
+  const clock = createClock(startHour ?? undefined);
+  clock.paused = paused;
 
   const scene = new Scene();
   const background = new Color();
@@ -95,8 +115,6 @@ export function createWorld({ seed, startHour, paused, camera, canvas }: WorldOp
   scene.background = background;
   scene.fog = fog;
 
-  // A hemisphere light rather than a flat ambient: the vertical faces of a
-  // tower need sky light from above, or a city at noon reads as a black mass.
   const ambient = new HemisphereLight(0xffffff, 0xffffff, 0.6);
   const sun = new DirectionalLight(0xffffff, 1.2);
   sun.shadow.mapSize.set(SHADOW.mapSize, SHADOW.mapSize);
@@ -107,55 +125,237 @@ export function createWorld({ seed, startHour, paused, camera, canvas }: WorldOp
   sun.shadow.camera.near = SHADOW.nearM;
   sun.shadow.camera.far = SHADOW.farM;
   sun.shadow.bias = -0.0009;
-  // Not pitch black in shadow: bounced light fills a real street.
   sun.shadow.intensity = 0.75;
-  const buildings = createBuildings(lots);
-  const props = createProps(rng, terrain, roads, lots);
-  const clock = createClock(startHour ?? undefined);
-  const traffic = createTraffic({ rng, graph: roads, wanted: FLEET });
-  const people = createPeople({
-    rng,
-    graph: roads,
-    lots,
-    byUse,
-    lotNodes: lotRoadNodes(lots, roads),
-    lotIndex: buildLotIndex(lots),
-    wanted: POPULATION,
+
+  const first = (startEra ? eraById(startEra) : undefined) ?? eraById(DEFAULT_ERA) ?? eras[0];
+  if (!first) throw new Error('no eras are built');
+
+  const ground: Ground = createGround(terrain, first.palette.land, first.palette.water);
+  scene.add(ambient, sun, sun.target, ground.group);
+
+  /**
+   * Builds one era's city in steps. The seed is shared, so every era stands on
+   * the same land. Each step is sized to fit inside one frame; `update()` runs
+   * one per frame, so changing era costs no dropped frame (PLAN.md 3.1).
+   */
+  function* eraWorldSteps(era: Era): Generator<void, EraWorld, void> {
+    const layout = yield* era.build(mulberry32(seed), terrain);
+    yield;
+    const group = new Group();
+    group.name = `era-${era.id}`;
+
+    const roadMesh = createRoadMesh(layout.roads, era.palette.road);
+    yield;
+    const buildings = createBuildings(layout.lots, {
+      colours: era.palette.building,
+      roof: era.palette.roof,
+      // The citadel puts a proper tiled roof on every building itself.
+      caps: layout.structures.length === 0,
+      litShare: era.palette.windowsLit,
+      glow: era.palette.windowGlow,
+    });
+    yield;
+    const propPalette = {
+      canopy: era.palette.canopy,
+      trunk: era.palette.trunk,
+      lampOn: era.palette.lampOn,
+      courtyardChance: era.palette.courtyardChance,
+      canopyScale: era.palette.canopyScale,
+      lamps: era.palette.lamps,
+    };
+    const placements = collectProps(
+      mulberry32(seed + 17),
+      terrain,
+      layout.roads,
+      layout.lots,
+      propPalette,
+    );
+    yield;
+    const props = createProps(placements, propPalette);
+
+    yield;
+
+    group.add(roadMesh, buildings.group, props.group);
+    if (layout.structures.length > 0) group.add(createStructures(layout.structures));
+    group.traverse((object) => {
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+    scene.add(group);
+    yield;
+
+    const byUse = lotsByUse(layout.lots);
+    const lotIndex = buildLotIndex(layout.lots);
+    yield;
+    const lotNodes = lotRoadNodes(layout.lots, layout.roads);
+
+    const material = roadMesh.material;
+    return {
+      era,
+      layout,
+      group,
+      byUse,
+      lotNodes,
+      lotIndex,
+      buildings,
+      props,
+      setRoadOpacity: (value) => {
+        material.opacity = value;
+      },
+    };
+  }
+
+  /** Runs a build to the end. Used for the first city, with nothing on screen. */
+  function buildEraWorld(era: Era): EraWorld {
+    const steps = eraWorldSteps(era);
+    for (;;) {
+      const step = steps.next();
+      if (step.done) return step.value;
+    }
+  }
+
+  let current = buildEraWorld(first);
+  let leaving: EraWorld | null = null;
+  /** The era being built, one step per frame. Null while nothing is coming. */
+  let pending: { id: EraId; steps: Generator<void, EraWorld, void> } | null = null;
+  const era = createEraState(first.id);
+
+  const traffic: { system: Traffic } = {
+    system: createTraffic({
+      rng: mulberry32(seed + 3),
+      graph: current.layout.roads,
+      wanted: first.population.vehicles,
+      profile: first.vehicles,
+    }),
+  };
+  scene.add(traffic.system.group);
+
+  const people: People = createPeople({
+    rng: mulberry32(seed + 5),
+    graph: current.layout.roads,
+    lots: current.layout.lots,
+    byUse: current.byUse,
+    lotNodes: current.lotNodes,
+    lotIndex: current.lotIndex,
+    wanted: first.population.people,
+    capacity: Math.max(...eras.map((each) => each.population.people)),
     startHour: clock.hourOfDay,
+    clothes: first.palette.clothes,
   });
-  scene.add(
-    ambient,
-    sun,
-    sun.target,
-    createGround(terrain),
-    createRoadMesh(roads),
-    buildings.group,
-    props.group,
-    people.group,
-    traffic.group,
-  );
-  castAndReceive(scene);
+  scene.add(people.group);
 
-  // Hysteresis: crossing the threshold rebuilds shaders, so do not let a small
-  // wobble at 300 m toggle it every frame.
-  let shadowsOn = false;
+  const thoughts: Thoughts = createThoughts({
+    people,
+    camera,
+    canvas,
+    set: first.thoughts,
+  });
 
-  const thoughts: Thoughts = createThoughts({ people, camera, canvas });
+  const fromLand = new Color();
+  const fromWater = new Color();
+  const toLand = new Color();
+  const toWater = new Color();
+  const blendLand = new Color();
+  const blendWater = new Color();
+  setEraColours(first, fromLand, fromWater);
+  setEraColours(first, toLand, toWater);
+  ground.setColours(fromLand, fromWater);
 
+  /**
+   * Starts building the era. The cross-fade begins once it is built, a few
+   * frames later; until then the bar shows the stop as pending.
+   */
+  function showEra(id: EraId): void {
+    if (pending?.id === id) return;
+    if (id === era.current && !isChanging(era) && !pending) return;
+    const next = eraById(id);
+    if (!next) return;
+    pending = { id, steps: eraWorldSteps(next) };
+  }
 
-  clock.paused = paused;
+  /** Runs one step of the pending build, and starts the fade on the last one. */
+  function advancePending(): void {
+    if (!pending) return;
+    const step = pending.steps.next();
+    if (!step.done) return;
+
+    const built = step.value;
+    if (leaving) {
+      // A second change while one is still running: drop the one already sinking.
+      scene.remove(leaving.group);
+      leaving = null;
+    }
+    leaving = current;
+    current = built;
+    current.group.scale.y = 0.001;
+    current.setRoadOpacity(0);
+    setEraColours(leaving.era, fromLand, fromWater);
+    setEraColours(current.era, toLand, toWater);
+    beginEraChange(era, pending.id);
+    pending = null;
+  }
+
+  function reseatAgents(): void {
+    people.reseat({
+      graph: current.layout.roads,
+      lots: current.layout.lots,
+      byUse: current.byUse,
+      lotNodes: current.lotNodes,
+      lotIndex: current.lotIndex,
+      clothes: current.era.palette.clothes,
+      wanted: current.era.population.people,
+      startHour: clock.hourOfDay,
+    });
+    scene.remove(traffic.system.group);
+    traffic.system = createTraffic({
+      rng: mulberry32(seed + 3),
+      graph: current.layout.roads,
+      wanted: current.era.population.vehicles,
+      profile: current.era.vehicles,
+    });
+    scene.add(traffic.system.group);
+    thoughts.setThoughts(current.era.thoughts);
+  }
 
   return {
     scene,
     clock,
     terrain,
-    roads,
-    lots,
+    era,
+    eras,
+    showEra,
+    pendingEra: () => pending?.id ?? null,
     update: (dtS, _elapsedS, view) => {
       const altitudeM = view.altitudeM;
       advanceClock(clock, dtS);
-      const sky = skyAt(clock.hourOfDay);
+      advancePending();
 
+      if (isChanging(era)) {
+        advanceEraChange(era, dtS);
+        const rise = eraEase(era.progress);
+        current.group.scale.y = Math.max(0.001, rise);
+        current.setRoadOpacity(rise);
+        if (leaving) {
+          leaving.group.scale.y = Math.max(0.001, 1 - rise);
+          leaving.setRoadOpacity(1 - rise);
+        }
+        blendLand.copy(fromLand).lerp(toLand, rise);
+        blendWater.copy(fromWater).lerp(toWater, rise);
+        ground.setColours(blendLand, blendWater);
+
+        if (!era.reseated && era.progress >= RESEAT_AT) {
+          era.reseated = true;
+          reseatAgents();
+        }
+        if (!isChanging(era) && leaving) {
+          scene.remove(leaving.group);
+          leaving = null;
+          current.group.scale.y = 1;
+          current.setRoadOpacity(1);
+        }
+      }
+
+      const sky = skyAt(clock.hourOfDay);
       applyRgb(background, sky.sky);
       applyRgb(fog.color, sky.fog);
       const range = fogRange(altitudeM);
@@ -169,42 +369,43 @@ export function createWorld({ seed, startHour, paused, camera, canvas }: WorldOp
         sky.sunDir.y * SUN_DISTANCE_M,
         view.targetZ + sky.sunDir.z * SUN_DISTANCE_M,
       );
-
-      if (shadowsOn && altitudeM > DETAIL.shadowMaxM + DETAIL.shadowHysteresisM) shadowsOn = false;
-      else if (!shadowsOn && altitudeM < DETAIL.shadowMaxM - DETAIL.shadowHysteresisM) shadowsOn = true;
-      sun.castShadow = shadowsOn;
+      sun.castShadow = altitudeM < DETAIL.shadowMaxM;
       applyRgb(sun.color, sky.sunColor);
       sun.intensity = sky.sunIntensity;
       applyRgb(ambient.color, sky.ambientColor);
       applyRgb(ambient.groundColor, sky.bounceColor);
       ambient.intensity = sky.ambientIntensity;
 
-      buildings.setNight(sky.nightFactor);
-      buildings.setDetail(detailFactor(DETAIL.windows, altitudeM));
-      props.setNight(sky.nightFactor);
-      props.setDetail(detailFactor(DETAIL.props, altitudeM));
+      const night = sky.nightFactor;
+      const windows = detailFactor(DETAIL.windows, altitudeM);
+      const props = detailFactor(DETAIL.props, altitudeM);
+      for (const world of [current, leaving]) {
+        if (!world) continue;
+        world.buildings.setNight(night);
+        world.buildings.setDetail(windows);
+        world.props.setNight(night);
+        world.props.setDetail(props);
+      }
 
       people.update(dtS, clock.hourOfDay, view);
-      traffic.update(dtS, clock.hourOfDay, view);
+      traffic.system.update(dtS, clock.hourOfDay, view);
       thoughts.update(dtS, view);
     },
     info: () =>
       `seed: ${seed}  water: ${terrain.water.kind}\n` +
-      `roads: ${roads.edges.length}  buildings: ${buildings.count}\n` +
-      `trees: ${props.treeCount}  lamps: ${props.lampCount}\n` +
+      `era: ${current.era.name} ${current.era.year}` +
+      `${isChanging(era) ? ` (${(era.progress * 100).toFixed(0)}%)` : ''}\n` +
+      `roads: ${current.layout.roads.edges.length}  lots: ${current.layout.lots.length}\n` +
       `people: ${people.count}  out: ${people.stats.outside}  walking: ${people.stats.walking}\n` +
-      `vehicles: ${traffic.stats.active}  thoughts: ${thoughts.stats.shown}\n` +
-      `agents: ${(people.stats.updateMs + traffic.stats.updateMs).toFixed(2)} ms  drawn: ${people.stats.drawn}\n` +
+      `vehicles: ${traffic.system.stats.active}  thoughts: ${thoughts.stats.shown}\n` +
+      `agents: ${(people.stats.updateMs + traffic.system.stats.updateMs).toFixed(2)} ms\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,
   };
 }
 
-/** Everything in the world casts and receives; the light decides when it matters. */
-function castAndReceive(scene: Scene): void {
-  scene.traverse((object) => {
-    object.castShadow = true;
-    object.receiveShadow = true;
-  });
+function setEraColours(era: Era, land: Color, water: Color): void {
+  land.set(era.palette.land);
+  water.set(era.palette.water);
 }
 
 function applyRgb(target: Color, rgb: Rgb): void {

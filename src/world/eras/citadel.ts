@@ -1,0 +1,398 @@
+import { smoothstep } from '@/state/altitude';
+import { CITADEL_THOUGHTS } from '@/thoughts/citadel-content';
+import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
+import {
+  avenueCorridors,
+  buildBlocks,
+  buildLots,
+  LOTS,
+  type Lot,
+  type LotProfile,
+  type LotUse,
+} from '@/world/lots';
+import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
+import { range, type Rng } from '@/world/seed';
+import type { TerrainSpec } from '@/world/terrain';
+
+/**
+ * The citadel, about 1800. The place is Hue: a square walled citadel with a
+ * moat and a gate in each side, a smaller enclosure inside it, and a line of
+ * halls down the central axis, with the town packed outside the wall.
+ *
+ * The way it is drawn comes from docs/reference/citadel-style.png: orange-gold
+ * tile roofs against violet walls, pale stone courtyards, heavy tree cover.
+ * The violet is what makes that picture read, so it is not quietly drifted
+ * towards brick red for realism (PLAN.md 5 and the decisions log).
+ *
+ * Everything is boxes, flattened pyramids and flat quads, like every other era.
+ */
+const CITADEL = {
+  /** Half the width of the outer wall square, in metres. */
+  wallHalfM: 470,
+  wallThicknessM: 20,
+  wallHeightM: 9,
+  /** The opening in the middle of each side. */
+  gateWidthM: 46,
+  moatWidthM: 38,
+  /** The inner enclosure, where the halls are. */
+  innerHalfM: 195,
+  innerThicknessM: 10,
+  innerHeightM: 6,
+  /** Grid pitch of the lanes. Tighter than a modern city. */
+  pitchM: 70,
+  laneWidthM: 7,
+} as const;
+
+const TILE = { lit: 0xf6b06a, sun: 0xe28f44, shade: 0xb96a2c, grey: 0x8b8f99 } as const;
+const WALL = { violet: 0x7d65a3, shade: 0x5d4a7c } as const;
+const STONE = 0xcfc7b2;
+
+const PALETTE: EraPalette = {
+  land: 0x55643f,
+  water: 0x2b4a5e,
+  road: 0x6e6450,
+  roof: TILE.sun,
+  canopy: 0x6f9450,
+  trunk: 0x4a3b2c,
+  lampOn: 0xffcf86,
+  // Half the compounds have a tree, which is what the reference is full of.
+  courtyardChance: 0.55,
+  // Village trees: a mango over the yard is as wide as the house.
+  canopyScale: 1.55,
+  // No street lighting in 1800.
+  lamps: false,
+  // Oil lamps, not the grid: a few dim windows, and most of the town dark.
+  windowsLit: 0.08,
+  windowGlow: 0.3,
+  building: {
+    // The halls and the gate houses: violet walls under orange tile.
+    temple: [WALL.violet, 0x8a72ad, 0x705a93],
+    // Offices of the court, plainer but still inside the wall.
+    work: [0x7a6c8e, 0xb9b2a0, 0x8d7f9c],
+    // The town outside: timber and ochre.
+    home: [0x9a7f63, 0x8b7157, 0xa68a6b, 0x7d6a54],
+    market: [0xa08a6a, 0xb09a78, 0x94805f],
+    park: [0x000000],
+    water: [0x000000],
+  },
+  clothes: [0xd9d2c4, 0xb9ac97, 0x8e7f6d, 0xc4b9a4, 0xa39680, 0xcdc4b2, 0x7d7264],
+};
+
+const VEHICLES: VehicleProfile = {
+  // Ox carts on the lanes, and porters with handcarts.
+  major: {
+    lengthM: 3.2,
+    heightM: 1.7,
+    widthM: 1.6,
+    speedMS: { min: 1.4, max: 2.2 },
+    colours: [0x8a7454, 0x74603f, 0x9b8461],
+  },
+  minor: {
+    lengthM: 1.5,
+    heightM: 1.1,
+    widthM: 0.8,
+    speedMS: { min: 1.1, max: 1.7 },
+    colours: [0x7f6d52, 0x6b5a45, 0x94836a],
+  },
+  minorShare: 0.7,
+  // A quiet town: a tenth of the traffic of the modern city.
+  density: 0.22,
+};
+
+const CITADEL_LOTS: LotProfile = {
+  // A town of small compounds, not of city blocks: a house here is about ten
+  // metres across, so a block holds a dozen of them with yards between.
+  lotsPerBlock: { min: 8, max: 16 },
+  minLotSideM: 6,
+  // The floor has to clear the minimum side plus both setbacks, or half the
+  // parts are split down to a size that is then thrown away.
+  splitFloorM: 15,
+  setbackM: 2.5,
+  parkChance: (d) => 0.1 + 0.16 * smoothstep(0.35, 1, d),
+  weights: (d) => {
+    const court = 1 - smoothstep(0.18, 0.42, d);
+    const town = smoothstep(0.3, 0.6, d);
+    return {
+      // Shrines are rare in the town; the violet is for the precinct.
+      temple: 0.012 + 0.44 * court,
+      work: 0.06 + 0.3 * court,
+      home: 0.1 + 0.62 * town,
+      market: 0.06 + 0.12 * (1 - court) * (1 - town * 0.4),
+      park: 0.05 + 0.07 * town,
+    };
+  },
+  heightFor: (rng, use, d) => {
+    const court = 1 - smoothstep(0.18, 0.45, d);
+    switch (use) {
+      case 'temple':
+        return range(rng, 9, 13) + 5 * court;
+      case 'work':
+        return range(rng, 5.5, 8.5) + 2 * court;
+      case 'home':
+        return range(rng, 4, 6.5);
+      case 'market':
+        return range(rng, 4, 6);
+      default:
+        return 0;
+    }
+  },
+  // Nothing in 1800 is a tower, so everything draws in the low mesh.
+  style: () => 'low',
+};
+
+/** Boxes, roofs and flat quads are the whole vocabulary. */
+function box(x: number, y: number, z: number, wM: number, hM: number, dM: number, colour: number): Structure {
+  return { kind: 'box', x, y, z, wM, hM, dM, rotY: 0, colour };
+}
+
+function roof(x: number, y: number, z: number, wM: number, hM: number, dM: number, colour: number): Structure {
+  return { kind: 'roof', x, y, z, wM, hM, dM, rotY: 0, colour };
+}
+
+function flat(x: number, z: number, wM: number, dM: number, colour: number, y = 0.18): Structure {
+  return { kind: 'flat', x, y, z, wM, hM: 1, dM, rotY: 0, colour };
+}
+
+/** True while a point is inside the square the wall encloses. */
+function insideSquare(x: number, z: number, halfM: number): boolean {
+  return Math.max(Math.abs(x), Math.abs(z)) < halfM;
+}
+
+/** How near a point on the wall is to the middle of the side it sits on. */
+function distanceToGate(x: number, z: number, halfM: number): number {
+  return Math.abs(x) > Math.abs(z) ? Math.abs(z) : Math.abs(x);
+}
+
+/**
+ * Cuts the lanes where the wall stands, leaving only the gates. Both walls are
+ * cut in one pass; whatever the water or the wall strands is then dropped, so
+ * the graph the walkers use is still one connected piece.
+ */
+function cutAtWalls(graph: RoadGraph): RoadGraph {
+  const kept = graph.edges.filter((edge) => {
+    const a = graph.nodes[edge.a];
+    const b = graph.nodes[edge.b];
+    if (!a || !b) return false;
+    for (const wall of [
+      { halfM: CITADEL.wallHalfM, gateM: CITADEL.gateWidthM / 2 },
+      { halfM: CITADEL.innerHalfM, gateM: CITADEL.gateWidthM / 2 },
+    ]) {
+      const inA = insideSquare(a.x, a.z, wall.halfM);
+      const inB = insideSquare(b.x, b.z, wall.halfM);
+      if (inA === inB) continue;
+      // Walk the segment to where it meets the wall, then ask if that is a gate.
+      let low = 0;
+      let high = 1;
+      for (let i = 0; i < 12; i++) {
+        const mid = (low + high) / 2;
+        const px = a.x + (b.x - a.x) * mid;
+        const pz = a.z + (b.z - a.z) * mid;
+        if (insideSquare(px, pz, wall.halfM) === inA) low = mid;
+        else high = mid;
+      }
+      const cx = a.x + (b.x - a.x) * low;
+      const cz = a.z + (b.z - a.z) * low;
+      // The inner enclosure opens to the south only, like Hue's.
+      const southOnly = wall.halfM === CITADEL.innerHalfM;
+      if (southOnly && cz < 0) return false;
+      if (distanceToGate(cx, cz, wall.halfM) > wall.gateM) return false;
+    }
+    return true;
+  });
+
+  return largestComponent(
+    createGraph(
+      graph.nodes.map((node) => ({ x: node.x, z: node.z })),
+      kept.map((edge) => ({ a: edge.a, b: edge.b, kind: edge.kind, widthM: edge.widthM })),
+    ),
+  );
+}
+
+/** The wall itself: two runs a side with the gate between them. */
+function wallStructures(halfM: number, thickM: number, heightM: number, gateM: number, colour: number): Structure[] {
+  const out: Structure[] = [];
+  const run = halfM - gateM / 2;
+  const offset = gateM / 2 + run / 2;
+  for (const side of [-1, 1]) {
+    for (const along of [-1, 1]) {
+      // north and south runs
+      out.push(box(along * offset, 0, side * halfM, run, heightM, thickM, colour));
+      // east and west runs
+      out.push(box(side * halfM, 0, along * offset, thickM, heightM, run, colour));
+    }
+  }
+  return out;
+}
+
+/** A gate house: a violet base under two tiers of tile. */
+function gateStructures(x: number, z: number, acrossX: boolean, colour: number): Structure[] {
+  const w = acrossX ? 52 : 26;
+  const d = acrossX ? 26 : 52;
+  return [
+    box(x, 0, z, w, 11, d, colour),
+    roof(x, 11, z, w * 1.35, 5.5, d * 1.35, TILE.sun),
+    box(x, 15, z, w * 0.6, 5, d * 0.6, colour),
+    roof(x, 20, z, w * 0.95, 4.5, d * 0.95, TILE.lit),
+  ];
+}
+
+function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
+  const shape = { pitchM: CITADEL.pitchM, streetWidthM: CITADEL.laneWidthM, avenueCount: 0, ringWidthM: 9 };
+  const grid = buildRoadGraph(rng, terrain, shape);
+  yield;
+  const roads = cutAtWalls(grid);
+  yield;
+
+  const blocks = buildBlocks(terrain, shape).filter((block) => {
+    // The precinct is laid out by hand, and nothing stands on the wall.
+    if (insideSquare(block.x, block.z, CITADEL.innerHalfM + 30)) return false;
+    return !onWall(block.x, block.z);
+  });
+  yield;
+
+  const lots = buildLots(
+    rng,
+    terrain,
+    blocks,
+    avenueCorridors(roads),
+    CITADEL_LOTS,
+    terrain.cityRadiusM,
+  ).filter((lot) => !onWall(lot.x, lot.z));
+
+  // The halls, down the axis, south to north. These are lots so that people
+  // walk to them, not scenery.
+  const halls: Lot[] = [];
+  const add = (x: number, z: number, wM: number, dM: number, heightM: number, use: LotUse): void => {
+    halls.push({
+      id: lots.length + halls.length,
+      x,
+      z,
+      wM,
+      dM,
+      use,
+      heightM,
+      style: 'low',
+      jitter: rng(),
+    });
+  };
+  const hallPlan = [
+    { z: 120, wM: 92, dM: 36, heightM: 15 },
+    { z: 26, wM: 76, dM: 32, heightM: 13 },
+    { z: -56, wM: 62, dM: 28, heightM: 11 },
+    { z: -124, wM: 50, dM: 24, heightM: 9.5 },
+  ];
+  for (const plan of hallPlan) {
+    add(0, plan.z, plan.wM, plan.dM, plan.heightM, 'temple');
+    // Two smaller pavilions flank each hall, which is what fills the enclosure.
+    const offset = plan.wM / 2 + 46;
+    for (const side of [-1, 1]) {
+      add(side * offset, plan.z - 6, 30, 20, plan.heightM * 0.55, 'work');
+      add(side * offset, plan.z + 34, 22, 16, plan.heightM * 0.45, 'work');
+    }
+  }
+  // A row of offices along the inside of the enclosure's east and west walls.
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      add(side * 152, -150 + i * 72, 26, 34, range(rng, 5, 7), 'work');
+    }
+  }
+  const all = [...lots, ...halls].map((lot, index) => ({ ...lot, id: index }));
+
+  yield;
+
+  const structures: Structure[] = [];
+
+  // Moat, then wall, then gates, outermost first.
+  const moatMid = CITADEL.wallHalfM + CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM / 2 + 4;
+  const moatSpan = moatMid * 2 + CITADEL.moatWidthM;
+  for (const side of [-1, 1]) {
+    structures.push(flat(0, side * moatMid, moatSpan, CITADEL.moatWidthM, PALETTE.water, 0.22));
+    structures.push(flat(side * moatMid, 0, CITADEL.moatWidthM, moatSpan, PALETTE.water, 0.22));
+  }
+
+  structures.push(
+    ...wallStructures(
+      CITADEL.wallHalfM,
+      CITADEL.wallThicknessM,
+      CITADEL.wallHeightM,
+      CITADEL.gateWidthM,
+      WALL.violet,
+    ),
+  );
+  for (const side of [-1, 1]) {
+    structures.push(...gateStructures(0, side * CITADEL.wallHalfM, true, WALL.violet));
+    structures.push(...gateStructures(side * CITADEL.wallHalfM, 0, false, WALL.violet));
+  }
+
+  // The inner enclosure, open to the south.
+  structures.push(
+    ...wallStructures(
+      CITADEL.innerHalfM,
+      CITADEL.innerThicknessM,
+      CITADEL.innerHeightM,
+      CITADEL.gateWidthM,
+      WALL.shade,
+    ),
+  );
+  structures.push(...gateStructures(0, CITADEL.innerHalfM, true, WALL.shade));
+
+  // Paved courtyards between the halls, and the great forecourt.
+  structures.push(flat(0, 73, 120, 58, STONE));
+  structures.push(flat(0, -15, 100, 50, STONE));
+  structures.push(flat(0, -90, 82, 42, STONE));
+  structures.push(flat(0, 168, 96, 68, STONE));
+  structures.push(flat(0, 300, 90, 190, STONE));
+
+  yield;
+
+  // Every building gets a tiled roof, wide enough to overhang its walls.
+  for (const lot of all) {
+    if (lot.heightM <= 0) continue;
+    const grand = lot.use === 'temple';
+    const tile = grand
+      ? TILE.sun
+      : lot.jitter < 0.18
+        ? TILE.grey
+        : lot.jitter < 0.55
+          ? TILE.lit
+          : TILE.sun;
+    structures.push(
+      roof(
+        lot.x,
+        lot.heightM,
+        lot.z,
+        lot.wM * (grand ? 1.34 : 1.24),
+        Math.min(lot.wM, lot.dM) * (grand ? 0.44 : 0.36),
+        lot.dM * (grand ? 1.34 : 1.24),
+        tile,
+      ),
+    );
+  }
+
+  return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
+}
+
+function onWall(x: number, z: number): boolean {
+  for (const wall of [
+    { halfM: CITADEL.wallHalfM, bandM: CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM + 26 },
+    { halfM: CITADEL.innerHalfM, bandM: CITADEL.innerThicknessM / 2 + 16 },
+  ]) {
+    const edge = Math.max(Math.abs(x), Math.abs(z));
+    if (Math.abs(edge - wall.halfM) < wall.bandM) return true;
+  }
+  return false;
+}
+
+export const CITADEL_ERA: Era = {
+  id: 'citadel',
+  year: 1800,
+  name: 'Citadel',
+  palette: PALETTE,
+  lots: CITADEL_LOTS,
+  vehicles: VEHICLES,
+  thoughts: CITADEL_THOUGHTS,
+  population: { people: 2600, vehicles: 300 },
+  build,
+};
+
+export { CITADEL, LOTS as MODERN_LOT_LIMITS };

@@ -12,6 +12,7 @@ describe('parseSettings', () => {
       paused: false,
       startAltitudeM: null,
       startTarget: null,
+      startEra: null,
     });
   });
 
@@ -38,6 +39,11 @@ describe('parseSettings', () => {
     expect(parseSettings('?at=120,-340', false).startTarget).toEqual({ x: 120, z: -340 });
     expect(parseSettings('?at=120', false).startTarget).toBeNull();
     expect(parseSettings('?at=a,b', false).startTarget).toBeNull();
+  });
+
+  it('reads a named era and ignores an unknown one', () => {
+    expect(parseSettings('?era=citadel', false).startEra).toBe('citadel');
+    expect(parseSettings('?era=atlantis', false).startEra).toBeNull();
   });
 
   it('passes reduced motion through', () => {

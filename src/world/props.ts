@@ -7,12 +7,10 @@ import {
   Group,
   InstancedMesh,
   Material,
-  Matrix4,
   MeshBasicMaterial,
   MeshLambertMaterial,
-  Quaternion,
-  Vector3,
 } from 'three';
+import { writeInstanceMatrix } from '@/world/instanced';
 import type { Lot } from '@/world/lots';
 import type { RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
@@ -31,7 +29,7 @@ export const PROPS = {
   kerbGapM: 4,
   lampSpacingM: 46,
   lampHeightM: 6,
-  maxTrees: 3600,
+  maxTrees: 9000,
   maxLamps: 900,
   /** Woods on the plain between the ring road and the mountains. */
   countrysideClumps: 130,
@@ -39,14 +37,19 @@ export const PROPS = {
   clumpRadiusM: 45,
 } as const;
 
-const PALETTE = {
-  trunk: 0x4a3b2c,
-  canopy: 0x3f6034,
-  canopyDark: 0x35502d,
-  post: 0x3a3a3c,
-  lampOff: 0x4a4740,
-  lampOn: 0xffd79a,
-} as const;
+const FIXED = { post: 0x3a3a3c, lampOff: 0x4a4740 } as const;
+
+export interface PropPalette {
+  canopy: number;
+  trunk: number;
+  lampOn: number;
+  /** Chance that a house or a shop has a tree in its yard. */
+  courtyardChance: number;
+  /** Multiplies the canopy size. Village trees are wider than street trees. */
+  canopyScale: number;
+  /** Street lamps belong to an era that has them. */
+  lamps: boolean;
+}
 
 export interface Props {
   group: Group;
@@ -67,14 +70,31 @@ interface Placement {
   rotY: number;
 }
 
-export function createProps(
+/** Where every tree and lamp goes. Pure, and the slow half of the work. */
+export interface PropPlacements {
+  trees: readonly Placement[];
+  lamps: readonly Placement[];
+}
+
+/**
+ * Chooses the positions. Split from `createProps` so that an era change can
+ * run the two halves in separate frames; on its own each fits inside one.
+ */
+export function collectProps(
   rng: Rng,
   terrain: TerrainSpec,
   graph: RoadGraph,
   lots: readonly Lot[],
-): Props {
-  const trees = collectTrees(rng, terrain, graph, lots);
-  const lamps = collectLamps(graph);
+  palette: PropPalette,
+): PropPlacements {
+  return {
+    trees: collectTrees(rng, terrain, graph, lots, palette),
+    lamps: palette.lamps ? collectLamps(graph) : [],
+  };
+}
+
+export function createProps(placements: PropPlacements, palette: PropPalette): Props {
+  const trees = placements.trees;
 
   const group = new Group();
   group.name = 'props';
@@ -88,29 +108,56 @@ export function createProps(
   const headGeometry = new BoxGeometry(1, 1, 1);
 
   // Trunks are a third of the tree; the canopy sits on top of them.
-  const trunks = trees.map((t) => ({ ...t, radiusM: t.radiusM * 0.12, heightM: t.heightM * 0.38 }));
-  const canopies = trees.map((t) => ({
-    ...t,
-    y: t.y + t.heightM * 0.34,
-    heightM: t.heightM * 0.7,
-  }));
+  group.add(
+    instanced(
+      trunkGeometry,
+      lambert(palette.trunk),
+      trees,
+      'tree-trunks',
+      (t) => t.radiusM * 0.12,
+      (t) => t.heightM * 0.38,
+      () => 0,
+    ),
+  );
+  group.add(
+    instanced(
+      canopyGeometry,
+      lambert(palette.canopy, true),
+      trees,
+      'tree-canopies',
+      (t) => t.radiusM,
+      (t) => t.heightM * 0.7,
+      (t) => t.heightM * 0.34,
+    ),
+  );
 
-  group.add(instanced(trunkGeometry, lambert(PALETTE.trunk), trunks, 'tree-trunks'));
-  group.add(instanced(canopyGeometry, lambert(PALETTE.canopy, true), canopies, 'tree-canopies'));
+  const lamps = placements.lamps;
+  const headMaterial = new MeshBasicMaterial({ color: new Color(FIXED.lampOff) });
+  group.add(
+    instanced(
+      postGeometry,
+      lambert(FIXED.post),
+      lamps,
+      'lamp-posts',
+      () => 0.09,
+      () => PROPS.lampHeightM,
+      () => 0,
+    ),
+  );
+  group.add(
+    instanced(
+      headGeometry,
+      headMaterial,
+      lamps,
+      'lamp-heads',
+      () => 0.45,
+      () => 0.35,
+      () => PROPS.lampHeightM,
+    ),
+  );
 
-  const headMaterial = new MeshBasicMaterial({ color: new Color(PALETTE.lampOff) });
-  const posts = lamps.map((l) => ({ ...l, radiusM: 0.09, heightM: PROPS.lampHeightM }));
-  const heads = lamps.map((l) => ({
-    ...l,
-    y: l.y + PROPS.lampHeightM,
-    radiusM: 0.45,
-    heightM: 0.35,
-  }));
-  group.add(instanced(postGeometry, lambert(PALETTE.post), posts, 'lamp-posts'));
-  group.add(instanced(headGeometry, headMaterial, heads, 'lamp-heads'));
-
-  const off = new Color(PALETTE.lampOff);
-  const on = new Color(PALETTE.lampOn);
+  const off = new Color(FIXED.lampOff);
+  const on = new Color(palette.lampOn);
 
   return {
     group,
@@ -131,6 +178,7 @@ function collectTrees(
   terrain: TerrainSpec,
   graph: RoadGraph,
   lots: readonly Lot[],
+  palette: PropPalette,
 ): Placement[] {
   const trees: Placement[] = [];
 
@@ -140,8 +188,8 @@ function collectTrees(
       x,
       y: 0,
       z,
-      radiusM: range(rng, 2.2, 4),
-      heightM: range(rng, 8, 13),
+      radiusM: range(rng, 2.2, 4) * palette.canopyScale,
+      heightM: range(rng, 8, 13) * palette.canopyScale,
       rotY: range(rng, 0, Math.PI * 2),
     });
   };
@@ -158,6 +206,19 @@ function collectTrees(
         plant(x, z);
       }
     }
+  }
+
+  // A tree in the yard, beside the building rather than on it.
+  for (const lot of lots) {
+    if (lot.use === 'park' || lot.heightM <= 0) continue;
+    if (rng() >= palette.courtyardChance) continue;
+    const side = rng() < 0.5 ? -1 : 1;
+    const alongX = rng() < 0.5;
+    const reach = (alongX ? lot.wM : lot.dM) / 2 + range(rng, 2, 5);
+    plant(
+      lot.x + (alongX ? side * reach : range(rng, -lot.wM / 3, lot.wM / 3)),
+      lot.z + (alongX ? range(rng, -lot.dM / 3, lot.dM / 3) : side * reach),
+    );
   }
 
   // Boulevards: a row down each side of every avenue and the ring road.
@@ -232,27 +293,40 @@ function lambert(color: number, flatShading = false): MeshLambertMaterial {
   return new MeshLambertMaterial({ color: new Color(color), flatShading });
 }
 
+/**
+ * One instanced mesh over a list of placements. The three functions say how big
+ * this part of the prop is and how far up its base sits, so that a trunk and
+ * its canopy share one list instead of each getting a copied one: the citadel
+ * plants four thousand trees, and copying them twice cost more than a frame.
+ */
 function instanced(
   geometry: BufferGeometry,
   material: Material,
   placements: readonly Placement[],
   name: string,
+  radiusOf: (p: Placement) => number,
+  heightOf: (p: Placement) => number,
+  liftOf: (p: Placement) => number,
 ): InstancedMesh {
   const mesh = new InstancedMesh(geometry, material, Math.max(placements.length, 1));
   mesh.name = name;
   mesh.count = placements.length;
-  const matrix = new Matrix4();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const rotation = new Quaternion();
-  const up = new Vector3(0, 1, 0);
+  const out = mesh.instanceMatrix.array as Float32Array;
   for (let i = 0; i < placements.length; i++) {
     const p = placements[i];
     if (!p) continue;
-    position.set(p.x, p.y, p.z);
-    rotation.setFromAxisAngle(up, p.rotY);
-    scale.set(p.radiusM, p.heightM, p.radiusM);
-    mesh.setMatrixAt(i, matrix.compose(position, rotation, scale));
+    const radiusM = radiusOf(p);
+    writeInstanceMatrix(
+      out,
+      i,
+      p.x,
+      p.y + liftOf(p),
+      p.z,
+      p.rotY,
+      radiusM,
+      heightOf(p),
+      radiusM,
+    );
   }
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;

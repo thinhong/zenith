@@ -19,10 +19,8 @@ import { centrelinePoint, TERRAIN, type MountainSpec, type TerrainSpec } from '@
  * flat colour and instanced (AGENTS.md 6); the shape comes from terrain.ts.
  */
 
-/** Modern-era land colours. These move into eras/modern.ts in M5. */
+/** The mountains ring every era, so their colour does not change with one. */
 export const GROUND_PALETTE = {
-  land: 0x4a5540,
-  water: 0x1b2f42,
   mountainLow: 0x3b4536,
   mountainHigh: 0x4a5244,
 } as const;
@@ -34,20 +32,36 @@ export const GROUND_PALETTE = {
  */
 export const LAYER_Y = { ground: 0, water: 0.3, road: 0.6 } as const;
 
-export function createGround(terrain: TerrainSpec): Group {
-  const group = new Group();
-  group.name = 'ground';
-  group.add(createLand(terrain));
-  group.add(createWater(terrain));
-  for (const mesh of createMountains(terrain.mountains)) group.add(mesh);
-  return group;
+export interface Ground {
+  group: Group;
+  /** The land and the water take their colour from the era, cross-faded on a switch. */
+  setColours: (land: Color, water: Color) => void;
 }
 
-function createLand(terrain: TerrainSpec): Mesh {
+export function createGround(terrain: TerrainSpec, land: number, water: number): Ground {
+  const group = new Group();
+  group.name = 'ground';
+  const landMesh = createLand(terrain, land);
+  const waterMesh = createWater(terrain, water);
+  group.add(landMesh, waterMesh);
+  for (const mesh of createMountains(terrain.mountains)) group.add(mesh);
+
+  const landMaterial = landMesh.material;
+  const waterMaterial = waterMesh.material;
+  return {
+    group,
+    setColours: (nextLand, nextWater) => {
+      landMaterial.color.copy(nextLand);
+      waterMaterial.color.copy(nextWater);
+    },
+  };
+}
+
+function createLand(terrain: TerrainSpec, colour: number): Mesh<CircleGeometry, MeshLambertMaterial> {
   const geometry = new CircleGeometry(terrain.groundRadiusM, 128);
   geometry.rotateX(-Math.PI / 2);
   const material = new MeshLambertMaterial({
-    color: new Color(GROUND_PALETTE.land),
+    color: new Color(colour),
     // Push the land a touch further away so the roads drawn on top of it win.
     polygonOffset: true,
     polygonOffsetFactor: 1,
@@ -59,7 +73,7 @@ function createLand(terrain: TerrainSpec): Mesh {
   return mesh;
 }
 
-function createWater(terrain: TerrainSpec): Mesh {
+function createWater(terrain: TerrainSpec, colour: number): Mesh<BufferGeometry, MeshLambertMaterial> {
   const water = terrain.water;
   const centre: { x: number; z: number }[] = [];
   for (let i = 0; i < water.offsetsM.length; i++) centre.push(centrelinePoint(water, i));
@@ -91,7 +105,7 @@ function createWater(terrain: TerrainSpec): Mesh {
   }
   const mesh = new Mesh(
     ribbonGeometry(inner, outer, LAYER_Y.water),
-    new MeshLambertMaterial({ color: new Color(GROUND_PALETTE.water) }),
+    new MeshLambertMaterial({ color: new Color(colour) }),
   );
   mesh.name = 'water';
   return mesh;

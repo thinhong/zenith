@@ -36,25 +36,12 @@ import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 const WINDOW = {
   rowM: 3.6,
   colM: 4.2,
-  /** Fraction of windows that are lit at night. */
-  litShare: 0.42,
-  glow: 0.85,
   /** No windows in the ground floor or right under the roof. */
   skirtM: 2,
   parapetM: 1.2,
 } as const;
 
-const ROOF = { thicknessM: 0.7, overhang: 1.05, color: 0x6b635a } as const;
-
-/** Modern-era building colours, low saturation and slightly warm (PLAN.md 5). */
-const PALETTE: Record<LotUse, readonly number[]> = {
-  work: [0x5d6875, 0x6b7380, 0x4f5a68, 0x737d8a],
-  home: [0x8a8175, 0x7d7a72, 0x94897a, 0x6f7a78],
-  market: [0x8a7f6a, 0x93866c, 0x7d745f],
-  temple: [0x8c5a46, 0x7d4f3e],
-  park: [0x000000],
-  water: [0x000000],
-};
+const ROOF = { thicknessM: 0.7, overhang: 1.05 } as const;
 
 export interface Buildings {
   group: Group;
@@ -65,10 +52,28 @@ export interface Buildings {
   count: number;
 }
 
-export function createBuildings(lots: readonly Lot[]): Buildings {
+export interface BuildingOptions {
+  colours: Readonly<Record<LotUse, readonly number[]>>;
+  /** Colour of the thin eaves cap. */
+  roof: number;
+  /**
+   * Whether to add that cap at all. An era that puts a proper tiled roof on
+   * every building of its own (the citadel) turns it off.
+   */
+  caps: boolean;
+  /**
+   * Fraction of windows lit after dark, and how brightly. A city on the grid
+   * shows rows of white panes; a town on oil lamps shows a few dim ones, so
+   * the era sets both rather than every era glowing like 2020.
+   */
+  litShare: number;
+  glow: number;
+}
+
+export function createBuildings(lots: readonly Lot[], options: BuildingOptions): Buildings {
   // One material for all three styles: the per-building numbers live in the
   // geometry, so the shader is compiled once.
-  const windows = createWindowMaterial();
+  const windows = createWindowMaterial(options.litShare, options.glow);
 
   const group = new Group();
   group.name = 'buildings';
@@ -77,12 +82,14 @@ export function createBuildings(lots: readonly Lot[]): Buildings {
   for (const style of ['tower', 'slab', 'low'] as const) {
     const styleLots = lots.filter((lot) => lot.heightM > 0 && lot.style === style);
     if (styleLots.length === 0) continue;
-    group.add(buildingMesh(styleLots, style, windows.material));
+    group.add(buildingMesh(styleLots, style, windows.material, options.colours));
     count += styleLots.length;
   }
 
-  const capped = lots.filter((lot) => lot.heightM > 0 && lot.style !== 'tower');
-  if (capped.length > 0) group.add(roofMesh(capped));
+  const capped = options.caps
+    ? lots.filter((lot) => lot.heightM > 0 && lot.style !== 'tower')
+    : [];
+  if (capped.length > 0) group.add(roofMesh(capped, options.roof));
 
   return { group, setNight: windows.setNight, setDetail: windows.setDetail, count };
 }
@@ -91,6 +98,7 @@ function buildingMesh(
   lots: readonly Lot[],
   style: BuildingStyle,
   material: MeshLambertNodeMaterial,
+  colours: Readonly<Record<LotUse, readonly number[]>>,
 ): InstancedMesh {
   const geometry = new BoxGeometry(1, 1, 1);
   geometry.translate(0, 0.5, 0); // pivot at the base so scaling in y grows upward
@@ -115,7 +123,7 @@ function buildingMesh(
     scale.set(lot.wM, lot.heightM, lot.dM);
     mesh.setMatrixAt(i, matrix.compose(position, rotation, scale));
 
-    const palette = PALETTE[lot.use];
+    const palette = colours[lot.use];
     const shade = palette[Math.min(palette.length - 1, Math.floor(lot.jitter * palette.length))] ?? 0x808080;
     // Color.set() already lands in the renderer's working (linear) space, so
     // the components go straight into the attribute. Converting again here made
@@ -136,12 +144,12 @@ function buildingMesh(
 }
 
 /** A thin cap that reads as eaves from above and breaks up the flat tops. */
-function roofMesh(lots: readonly Lot[]): InstancedMesh {
+function roofMesh(lots: readonly Lot[], colour: number): InstancedMesh {
   const geometry = new BoxGeometry(1, 1, 1);
   geometry.translate(0, 0.5, 0);
   const mesh = new InstancedMesh(
     geometry,
-    new MeshLambertMaterial({ color: new Color(ROOF.color) }),
+    new MeshLambertMaterial({ color: new Color(colour) }),
     lots.length,
   );
   mesh.name = 'buildings-roofs';
@@ -167,7 +175,7 @@ function roofMesh(lots: readonly Lot[]): InstancedMesh {
  * the world turns each frame; the node types stay inferred rather than spelled
  * out, which keeps this readable.
  */
-function createWindowMaterial() {
+function createWindowMaterial(litShare: number, glowStrength: number) {
   const night = uniform(0);
   const detail = uniform(1);
 
@@ -197,7 +205,7 @@ function createWindowMaterial() {
   const hashA = fract(floor(row).mul(0.1031).add(buildingSeed.mul(0.0973)));
   const hashB = fract(floor(col).mul(0.1379).add(hashA.mul(43.21)));
   const noise = fract(hashA.add(hashB).mul(hashB.add(19.19)).mul(7.13));
-  const lit = step(1 - WINDOW.litShare, noise);
+  const lit = step(1 - litShare, noise);
 
   const notRoof = float(1).sub(step(0.5, abs(normalWorld.y)));
   const aboveStreet = step(WINDOW.skirtM, heightM);
@@ -212,7 +220,7 @@ function createWindowMaterial() {
     .mul(belowParapet)
     .mul(night)
     .mul(detail)
-    .mul(WINDOW.glow);
+    .mul(glowStrength);
 
   const material = new MeshLambertNodeMaterial();
   material.colorNode = instanceColor;

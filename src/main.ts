@@ -3,6 +3,8 @@ import { createCameraRig } from '@/core/camera';
 import { startLoop } from '@/core/loop';
 import { createWorld } from '@/world/world';
 import { createHud } from '@/ui/hud';
+import { createBar } from '@/ui/bar';
+import { ERA_ORDER } from '@/world/eras';
 import { altitudeBand } from '@/state/altitude';
 import { readSettings } from '@/state/settings';
 import { TERRAIN } from '@/world/terrain';
@@ -21,16 +23,37 @@ async function main(): Promise<void> {
   const world = createWorld({
     seed: settings.seed,
     startHour: settings.startHour,
+    startEra: settings.startEra,
     paused: settings.paused,
     camera: rig.camera,
     canvas: container,
   });
   const hud = createHud();
 
+  const built = new Set(world.eras.map((era) => era.id));
+  const bar = createBar({
+    built,
+    // While an era is still being built, its stop is the one that lights.
+    current: () => world.pendingEra() ?? world.era.current,
+    onEra: (id) => {
+      world.showEra(id);
+      bar.refresh();
+    },
+  });
+
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
       world.clock.paused = !world.clock.paused;
+      return;
+    }
+    const slot = Number(e.key);
+    if (Number.isInteger(slot) && slot >= 1 && slot <= ERA_ORDER.length) {
+      const id = ERA_ORDER[slot - 1];
+      if (id && built.has(id)) {
+        world.showEra(id);
+        bar.refresh();
+      }
     }
   });
 
@@ -44,6 +67,7 @@ async function main(): Promise<void> {
       view = rig.view();
       fps = 1 / Math.max(dt, 1e-6);
       world.update(dt, elapsed, view);
+      bar.update(dt);
     },
     render: () => {
       renderer.render(world.scene, rig.camera);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mulberry32 } from './seed';
+import { mulberry32, range } from './seed';
 import { buildTerrain, centrelineOffsetAt } from './terrain';
 import {
+  buildNodeIndex,
   buildRoadGraph,
   ROADS,
   createGraph,
@@ -176,5 +177,31 @@ describe('bridges', () => {
       expect(crossings.length).toBeLessThanOrEqual(ROADS.maxBridges);
     }
     expect(riverSeeds).toBeGreaterThan(5);
+  });
+});
+
+describe('buildNodeIndex', () => {
+  it('finds the same node as a full scan', () => {
+    const terrain = buildTerrain(mulberry32(4));
+    const graph = buildRoadGraph(mulberry32(4), terrain);
+    const index = buildNodeIndex(graph);
+    const rng = mulberry32(99);
+    for (let i = 0; i < 400; i++) {
+      const x = range(rng, -3000, 3000);
+      const z = range(rng, -3000, 3000);
+      const scanned = nearestNode(graph, x, z);
+      const found = index.nearest(x, z);
+      const a = graph.nodes[scanned];
+      const b = graph.nodes[found];
+      if (!a || !b) throw new Error('missing node');
+      // Two nodes can be exactly as near; the distance is what matters.
+      const da = (a.x - x) ** 2 + (a.z - z) ** 2;
+      const db = (b.x - x) ** 2 + (b.z - z) ** 2;
+      expect(db).toBeCloseTo(da, 6);
+    }
+  });
+
+  it('answers -1 for a graph with no nodes', () => {
+    expect(buildNodeIndex(createGraph([], [])).nearest(0, 0)).toBe(-1);
   });
 });

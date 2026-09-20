@@ -1,5 +1,5 @@
 import { smoothstep } from '@/state/altitude';
-import { nearestNode, ROADS, type RoadGraph } from '@/world/roads';
+import { buildNodeIndex, ROADS, roadOptions, type RoadGraph, type RoadOptions } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 import { isBuildable, type TerrainSpec } from '@/world/terrain';
 
@@ -54,12 +54,30 @@ export interface Corridor {
   halfWidthM: number;
 }
 
+/**
+ * What an era wants its blocks cut into. The shapes stay here; the character
+ * (how many lots, how tall, what they are for) lives in the era file.
+ */
+export interface LotProfile {
+  lotsPerBlock: { min: number; max: number };
+  minLotSideM: number;
+  splitFloorM: number;
+  setbackM: number;
+  /** Chance a whole block is given over to a park, by distance from the centre. */
+  parkChance: (normalisedDistance: number) => number;
+  /** Shares of each use, by distance from the centre. */
+  weights: (normalisedDistance: number) => Record<Exclude<LotUse, 'water'>, number>;
+  heightFor: (rng: Rng, use: LotUse, normalisedDistance: number) => number;
+  style: (heightM: number) => BuildingStyle;
+}
+
 /** One block per grid cell whose four corners are all buildable. */
-export function buildBlocks(terrain: TerrainSpec): Rect[] {
+export function buildBlocks(terrain: TerrainSpec, over: Partial<RoadOptions> = {}): Rect[] {
+  const shape = roadOptions(terrain, over);
   const blocks: Rect[] = [];
-  const pitch = ROADS.pitchM;
-  const side = pitch - ROADS.streetWidthM - LOTS.blockInsetM * 2;
-  const half = Math.floor(terrain.cityRadiusM / pitch);
+  const pitch = shape.pitchM;
+  const side = pitch - shape.streetWidthM - LOTS.blockInsetM * 2;
+  const half = Math.floor(shape.cityRadiusM / pitch);
   for (let i = -half; i < half; i++) {
     for (let j = -half; j < half; j++) {
       const buildable =
@@ -98,34 +116,33 @@ export function buildLots(
   terrain: TerrainSpec,
   blocks: readonly Rect[],
   corridors: readonly Corridor[],
+  profile: LotProfile = MODERN_LOTS,
+  cityRadiusM: number = terrain.cityRadiusM,
 ): Lot[] {
   const lots: Lot[] = [];
   for (const block of blocks) {
-    const blockDistance = normalised(block, terrain);
-    const parkChance =
-      LOTS.parkChanceCentre +
-      (LOTS.parkChanceEdge - LOTS.parkChanceCentre) * smoothstep(0.3, 1, blockDistance);
-    if (rng() < parkChance) {
+    const blockDistance = Math.hypot(block.x, block.z) / cityRadiusM;
+    if (rng() < profile.parkChance(blockDistance)) {
       if (!crossesCorridor(corridors, block)) {
-        lots.push(makeLot(lots.length, block, 'park', 0, rng()));
+        lots.push(makeLot(lots.length, block, 'park', 0, rng(), profile));
       }
       continue;
     }
 
-    const spread = LOTS.maxLotsPerBlock - LOTS.minLotsPerBlock + 1;
-    const target = LOTS.minLotsPerBlock + Math.floor(rng() * spread);
-    for (const part of splitRect(rng, block, target)) {
-      const wM = part.wM - LOTS.setbackM * 2;
-      const dM = part.dM - LOTS.setbackM * 2;
-      if (wM < LOTS.minLotSideM || dM < LOTS.minLotSideM) continue;
+    const spread = profile.lotsPerBlock.max - profile.lotsPerBlock.min + 1;
+    const target = profile.lotsPerBlock.min + Math.floor(rng() * spread);
+    for (const part of splitRect(rng, block, target, profile.splitFloorM)) {
+      const wM = part.wM - profile.setbackM * 2;
+      const dM = part.dM - profile.setbackM * 2;
+      if (wM < profile.minLotSideM || dM < profile.minLotSideM) continue;
       if (crossesCorridor(corridors, part)) continue;
-      const distance = normalised(part, terrain);
-      const use = pickUse(rng, distance);
-      const heightM = heightFor(rng, use, distance);
-      lots.push(makeLot(lots.length, { ...part, wM, dM }, use, heightM, rng()));
+      const distance = Math.hypot(part.x, part.z) / cityRadiusM;
+      const use = pickUse(rng, distance, profile);
+      const heightM = profile.heightFor(rng, use, distance);
+      lots.push(makeLot(lots.length, { ...part, wM, dM }, use, heightM, rng(), profile));
     }
   }
-  ensureTemple(rng, lots, terrain.cityRadiusM);
+  ensureTemple(rng, lots, cityRadiusM, profile);
   return lots;
 }
 
@@ -144,22 +161,48 @@ export function useWeights(normalisedDistance: number): Record<Exclude<LotUse, '
   };
 }
 
+/** The modern era's own settings, and the default for anything that does not say. */
+export const MODERN_LOTS: LotProfile = {
+  lotsPerBlock: { min: LOTS.minLotsPerBlock, max: LOTS.maxLotsPerBlock },
+  minLotSideM: LOTS.minLotSideM,
+  splitFloorM: LOTS.splitFloorM,
+  setbackM: LOTS.setbackM,
+  parkChance: (d) =>
+    LOTS.parkChanceCentre + (LOTS.parkChanceEdge - LOTS.parkChanceCentre) * smoothstep(0.3, 1, d),
+  weights: useWeights,
+  heightFor: modernHeight,
+  style: styleFor,
+};
+
 export function styleFor(heightM: number): BuildingStyle {
   if (heightM >= LOTS.towerFromM) return 'tower';
   if (heightM >= LOTS.slabFromM) return 'slab';
   return 'low';
 }
 
-function makeLot(id: number, rect: Rect, use: LotUse, heightM: number, jitter: number): Lot {
-  return { id, x: rect.x, z: rect.z, wM: rect.wM, dM: rect.dM, use, heightM, style: styleFor(heightM), jitter };
+function makeLot(
+  id: number,
+  rect: Rect,
+  use: LotUse,
+  heightM: number,
+  jitter: number,
+  profile: LotProfile,
+): Lot {
+  return {
+    id,
+    x: rect.x,
+    z: rect.z,
+    wM: rect.wM,
+    dM: rect.dM,
+    use,
+    heightM,
+    style: profile.style(heightM),
+    jitter,
+  };
 }
 
-function normalised(rect: Rect, terrain: TerrainSpec): number {
-  return Math.hypot(rect.x, rect.z) / terrain.cityRadiusM;
-}
-
-function pickUse(rng: Rng, normalisedDistance: number): LotUse {
-  const weights = useWeights(normalisedDistance);
+function pickUse(rng: Rng, normalisedDistance: number, profile: LotProfile): LotUse {
+  const weights = profile.weights(normalisedDistance);
   const entries = Object.entries(weights) as [Exclude<LotUse, 'water'>, number][];
   let total = 0;
   for (const [, weight] of entries) total += weight;
@@ -171,7 +214,7 @@ function pickUse(rng: Rng, normalisedDistance: number): LotUse {
   return 'home';
 }
 
-function heightFor(rng: Rng, use: LotUse, normalisedDistance: number): number {
+export function modernHeight(rng: Rng, use: LotUse, normalisedDistance: number): number {
   // Tall downtown, low at the edge. The square falloff gives a skyline that
   // drops quickly rather than sloping evenly across the city.
   const core = 1 - smoothstep(0, 0.62, normalisedDistance);
@@ -190,7 +233,7 @@ function heightFor(rng: Rng, use: LotUse, normalisedDistance: number): number {
 }
 
 /** Every city has somewhere to go and be quiet, whatever the weights rolled. */
-function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number): void {
+function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number, profile: LotProfile): void {
   if (lots.some((lot) => lot.use === 'temple')) return;
   let chosen: Lot | undefined;
   let bestDistance = Infinity;
@@ -204,19 +247,19 @@ function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number): void {
   }
   if (!chosen) return;
   chosen.use = 'temple';
-  chosen.heightM = heightFor(rng, 'temple', bestDistance / cityRadiusM);
-  chosen.style = styleFor(chosen.heightM);
+  chosen.heightM = profile.heightFor(rng, 'temple', bestDistance / cityRadiusM);
+  chosen.style = profile.style(chosen.heightM);
 }
 
 /** Splits the largest part in two until there are `target` of them. */
-function splitRect(rng: Rng, block: Rect, target: number): Rect[] {
+function splitRect(rng: Rng, block: Rect, target: number, floorM: number): Rect[] {
   const parts: Rect[] = [{ ...block }];
   while (parts.length < target) {
     let index = -1;
     let biggest = -1;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      if (!part || Math.min(part.wM, part.dM) < LOTS.splitFloorM) continue;
+      if (!part || Math.min(part.wM, part.dM) < floorM) continue;
       const area = part.wM * part.dM;
       if (area > biggest) {
         biggest = area;
@@ -297,7 +340,8 @@ export function lotsByUse(lots: readonly Lot[]): Record<LotUse, number[]> {
  */
 export function lotRoadNodes(lots: readonly Lot[], graph: RoadGraph): Int32Array {
   const nodes = new Int32Array(lots.length).fill(-1);
-  for (const lot of lots) nodes[lot.id] = nearestNode(graph, lot.x, lot.z);
+  const index = buildNodeIndex(graph);
+  for (const lot of lots) nodes[lot.id] = index.nearest(lot.x, lot.z);
   return nodes;
 }
 
@@ -330,11 +374,10 @@ export function buildLotIndex(lots: readonly Lot[], cellM: number = LOT_INDEX_CE
       const cz = Math.floor(z / cellM);
       let best = -1;
       let bestDistance = Infinity;
-      let foundRing = -1;
-      for (let ring = 0; ring <= 24; ring++) {
-        // Stop one ring past the first hit: a lot just over a cell edge can
-        // still be nearer than the one that was found first.
-        if (foundRing >= 0 && ring > foundRing + 1) break;
+      for (let ring = 0; ring <= 192; ring++) {
+        // Nothing in this ring or beyond can be nearer than its inner edge, so
+        // once that edge is further than the best so far, the search is done.
+        if (ring > 1 && ((ring - 1) * cellM) ** 2 > bestDistance) break;
         for (let dx = -ring; dx <= ring; dx++) {
           for (let dz = -ring; dz <= ring; dz++) {
             if (ring > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
@@ -347,7 +390,6 @@ export function buildLotIndex(lots: readonly Lot[], cellM: number = LOT_INDEX_CE
               if (distance < bestDistance) {
                 bestDistance = distance;
                 best = id;
-                if (foundRing < 0) foundRing = ring;
               }
             }
           }

@@ -12,6 +12,7 @@ import {
 } from '@/world/instanced';
 import { LAYER_Y } from '@/world/ground';
 import type { RoadGraph } from '@/world/roads';
+import type { VehicleKind, VehicleProfile } from '@/world/eras';
 import { range, type Rng } from '@/world/seed';
 
 /**
@@ -23,21 +24,11 @@ import { range, type Rng } from '@/world/seed';
  * on the roads as well as on the pavements.
  */
 const TRAFFIC = {
-  /** Share of the fleet that is a scooter. This is Vietnam (PLAN.md M2 task 6). */
-  scooterShare: 0.66,
-  carSpeedMS: { min: 9, max: 14 },
-  scooterSpeedMS: { min: 8, max: 13 },
   /** Fraction of the road half-width a vehicle drives at, right of the centre. */
   laneFraction: 0.26,
   junctionWaitS: { min: 0.15, max: 1.1 },
-  car: { lengthM: 4.4, heightM: 1.5, widthM: 1.8 },
-  scooter: { lengthM: 1.9, heightM: 1.15, widthM: 0.7 },
   dotSizePx: 2.2,
 } as const;
-
-/** Modern-era paintwork. Moves into eras/modern.ts in M5. */
-const CAR_COLORS: readonly number[] = [0xd6d2c8, 0xb8bcc2, 0x8e97a3, 0xc9b9a6, 0x7a8a93, 0xa8564a];
-const SCOOTER_COLORS: readonly number[] = [0x6e757d, 0x8a7f72, 0x5a6169, 0x9c8f7e];
 
 export interface TrafficStats {
   updateMs: number;
@@ -54,6 +45,8 @@ export interface TrafficOptions {
   rng: Rng;
   graph: RoadGraph;
   wanted: number;
+  /** What this era drives, and how much of it there is. */
+  profile: VehicleProfile;
 }
 
 /** How busy the roads are at a given hour, 0 to 1. Pure, so it can be tested. */
@@ -104,12 +97,12 @@ export function pickNextEdge(
 }
 
 export function createTraffic(options: TrafficOptions): Traffic {
-  const { rng, graph } = options;
+  const { rng, graph, profile } = options;
   const pool = createVehiclePool(Math.min(options.wanted, POOL.maxVehicles));
-  const carPalette = paletteToLinear(CAR_COLORS);
-  const scooterPalette = paletteToLinear(SCOOTER_COLORS);
+  const carPalette = paletteToLinear(profile.major.colours);
+  const scooterPalette = paletteToLinear(profile.minor.colours);
 
-  spawn(rng, pool, graph);
+  spawn(rng, pool, graph, profile);
 
   let cars = 0;
   for (let i = 0; i < pool.count; i++) if ((pool.kind[i] ?? 0) === 0) cars++;
@@ -118,8 +111,8 @@ export function createTraffic(options: TrafficOptions): Traffic {
   const group = new Group();
   group.name = 'traffic';
 
-  const carMesh = boxMesh(TRAFFIC.car, Math.max(cars, 1), 'traffic-cars');
-  const scooterMesh = boxMesh(TRAFFIC.scooter, Math.max(scooters, 1), 'traffic-scooters');
+  const carMesh = boxMesh(profile.major, Math.max(cars, 1), 'traffic-cars');
+  const scooterMesh = boxMesh(profile.minor, Math.max(scooters, 1), 'traffic-scooters');
   const carColors = attachInstanceColors(carMesh, Math.max(cars, 1));
   const scooterColors = attachInstanceColors(scooterMesh, Math.max(scooters, 1));
   const carMatrices = carMesh.instanceMatrix.array as Float32Array;
@@ -184,7 +177,10 @@ export function createTraffic(options: TrafficOptions): Traffic {
     stats,
     update: (dtS, hourOfDay, view) => {
       const started = performance.now();
-      const active = Math.min(pool.count, Math.round(pool.count * trafficLoad(hourOfDay)));
+      const active = Math.min(
+        pool.count,
+        Math.round(pool.count * trafficLoad(hourOfDay) * profile.density),
+      );
       for (let i = 0; i < active; i++) drive(i, dtS);
       stats.active = active;
 
@@ -203,11 +199,11 @@ export function createTraffic(options: TrafficOptions): Traffic {
           const heading = -(pool.heading[i] ?? 0);
           const colour = pool.colour[i] ?? 0;
           if ((pool.kind[i] ?? 0) === 0) {
-            writeInstanceMatrix(carMatrices, carSlot, x, LAYER_Y.road + TRAFFIC.car.heightM / 2, z, heading, 1, 1, 1);
+            writeInstanceMatrix(carMatrices, carSlot, x, LAYER_Y.road + profile.major.heightM / 2, z, heading, 1, 1, 1);
             copyColor(carColors, carSlot, carPalette, colour);
             carSlot++;
           } else {
-            writeInstanceMatrix(scooterMatrices, scooterSlot, x, LAYER_Y.road + TRAFFIC.scooter.heightM / 2, z, heading, 1, 1, 1);
+            writeInstanceMatrix(scooterMatrices, scooterSlot, x, LAYER_Y.road + profile.minor.heightM / 2, z, heading, 1, 1, 1);
             copyColor(scooterColors, scooterSlot, scooterPalette, colour);
             scooterSlot++;
           }
@@ -233,27 +229,26 @@ export function createTraffic(options: TrafficOptions): Traffic {
   };
 }
 
-function spawn(rng: Rng, pool: VehiclePool, graph: RoadGraph): void {
+function spawn(rng: Rng, pool: VehiclePool, graph: RoadGraph, profile: VehicleProfile): void {
   if (graph.edges.length === 0) return;
   for (let i = 0; i < pool.capacity; i++) {
     const edgeIndex = Math.floor(rng() * graph.edges.length);
     const edge = graph.edges[edgeIndex];
     if (!edge) continue;
-    const scooter = rng() < TRAFFIC.scooterShare;
+    const scooter = rng() < profile.minorShare;
     pool.edge[i] = edgeIndex;
     pool.forward[i] = rng() < 0.5 ? 1 : -1;
     pool.alongM[i] = rng() * edge.lengthM;
     pool.kind[i] = scooter ? 1 : 0;
-    pool.speedMS[i] = scooter
-      ? range(rng, TRAFFIC.scooterSpeedMS.min, TRAFFIC.scooterSpeedMS.max)
-      : range(rng, TRAFFIC.carSpeedMS.min, TRAFFIC.carSpeedMS.max);
-    pool.colour[i] = Math.floor(rng() * (scooter ? SCOOTER_COLORS.length : CAR_COLORS.length));
+    const kind = scooter ? profile.minor : profile.major;
+    pool.speedMS[i] = range(rng, kind.speedMS.min, kind.speedMS.max);
+    pool.colour[i] = Math.floor(rng() * kind.colours.length);
     pool.waitS[i] = 0;
   }
   pool.count = pool.capacity;
 }
 
-function boxMesh(size: { lengthM: number; heightM: number; widthM: number }, capacity: number, name: string): InstancedMesh {
+function boxMesh(size: VehicleKind, capacity: number, name: string): InstancedMesh {
   // Length along local +x, so the heading turns it the way it is going.
   const geometry = new BoxGeometry(size.lengthM, size.heightM, size.widthM);
   const mesh = new InstancedMesh(geometry, createInstanceColorMaterial(), capacity);
