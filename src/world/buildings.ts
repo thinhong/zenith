@@ -103,12 +103,27 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
   group.name = 'buildings';
 
   let count = 0;
-  const layers: { mesh: InstancedMesh; lots: readonly Lot[] }[] = [];
+  /**
+   * `write` puts one instance back exactly as it was built, or scales it to
+   * nothing. Each layer needs its own, because a roof cap does not sit where
+   * its building sits: sharing one writer between them re-sealed every capped
+   * building as a full-height box the size of the whole plot.
+   */
+  const layers: {
+    mesh: InstancedMesh;
+    lots: readonly Lot[];
+    write: (out: Float32Array, index: number, lot: Lot, scale: number) => void;
+  }[] = [];
   for (const style of ['tower', 'slab', 'low'] as const) {
     const styleLots = lots.filter((lot) => lot.heightM > 0 && lot.style === style);
     if (styleLots.length === 0) continue;
     const mesh = buildingMesh(styleLots, style, windows.material, options.colours);
-    layers.push({ mesh, lots: styleLots });
+    layers.push({
+      mesh,
+      lots: styleLots,
+      write: (out, index, lot, k) =>
+        writeInstanceMatrix(out, index, lot.x, 0, lot.z, 0, lot.wM * k, lot.heightM * k, lot.dM * k),
+    });
     group.add(mesh);
     count += styleLots.length;
   }
@@ -118,7 +133,22 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
     : [];
   if (capped.length > 0) {
     const mesh = roofMesh(capped, options.roof);
-    layers.push({ mesh, lots: capped });
+    layers.push({
+      mesh,
+      lots: capped,
+      write: (out, index, lot, k) =>
+        writeInstanceMatrix(
+          out,
+          index,
+          lot.x,
+          lot.heightM,
+          lot.z,
+          0,
+          lot.wM * ROOF.overhang * k,
+          ROOF.thicknessM * k,
+          lot.dM * ROOF.overhang * k,
+        ),
+    });
     group.add(mesh);
   }
 
@@ -134,8 +164,7 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
         for (let i = 0; i < layer.lots.length; i++) {
           const lot = layer.lots[i];
           if (!lot) continue;
-          const k = lotIds.has(lot.id) ? 0 : 1;
-          writeInstanceMatrix(matrices, i, lot.x, 0, lot.z, 0, lot.wM * k, lot.heightM * k, lot.dM * k);
+          layer.write(matrices, i, lot, lotIds.has(lot.id) ? 0 : 1);
         }
         layer.mesh.instanceMatrix.needsUpdate = true;
       }

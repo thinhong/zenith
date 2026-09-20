@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, InstancedMesh } from 'three';
+import { BoxGeometry, Group, InstancedMesh, type Object3D, Sphere, Vector3 } from 'three';
 import type { Structure } from '@/world/eras';
 import {
   attachInstanceColors,
@@ -24,7 +24,14 @@ export interface Interiors {
   /** Starts again from nothing. */
   clear: () => void;
   /** Adds one building's rooms. */
-  add: (structures: readonly Structure[]) => void;
+  add: (lotId: number, structures: readonly Structure[]) => void;
+  /**
+   * Which open building a click landed on. Once a building is open its own box
+   * is scaled to nothing, so there is nothing of it left to click: without
+   * this, clicking an open building fell through to whatever stood behind it
+   * and opened that instead, and nothing could ever be shut again.
+   */
+  lotAt: (mesh: Object3D, instanceId: number) => number | undefined;
 }
 
 export function createInteriors(): Interiors {
@@ -37,9 +44,17 @@ export function createInteriors(): Interiors {
   mesh.name = 'interiors-box';
   mesh.frustumCulled = false;
   mesh.count = 0;
+  // A bounding sphere given by hand, never computed. This mesh starts with no
+  // instances in it, and three works a sphere out from the instances it has:
+  // with none, the radius comes out NaN, gets cached, and every ray misses it
+  // from then on. That is what stopped an open building from being clicked
+  // shut again, because once it is open its own box is scaled to nothing and
+  // the interior is the only thing left there to hit.
+  mesh.boundingSphere = new Sphere(new Vector3(0, 0, 0), 1e5);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   const colors = attachInstanceColors(mesh, CAPACITY);
+  const owners = new Int32Array(CAPACITY).fill(-1);
   const matrices = mesh.instanceMatrix.array as Float32Array;
   group.add(mesh);
 
@@ -51,9 +66,15 @@ export function createInteriors(): Interiors {
       used = 0;
       mesh.count = 0;
     },
-    add: (structures) => {
+    lotAt: (object, instanceId) => {
+      if (object !== mesh) return undefined;
+      const owner = owners[instanceId] ?? -1;
+      return owner >= 0 ? owner : undefined;
+    },
+    add: (lotId, structures) => {
       for (const s of structures) {
         if (used >= CAPACITY) break;
+        owners[used] = lotId;
         writeInstanceMatrix(matrices, used, s.x, s.y, s.z, s.rotY, s.wM, s.hM, s.dM);
         const linear = paletteToLinear([s.colour]);
         colors[used * 3] = linear[0] ?? 0.5;

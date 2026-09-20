@@ -131,3 +131,22 @@ Start with M2 in `docs/PLAN.md`.
   irradiance on a top face is `ambI * ambLinear + sunI * sunLinear * dot(n, s)`
   and Lambert divides by PI, so those two terms have to sum to about PI. They
   summed to 1.6 here, and every palette looked like mud until that was fixed.
+- An InstancedMesh that starts with no instances gets a NaN bounding sphere,
+  three caches it, and every raycast against it misses from then on. Give one
+  a `boundingSphere` by hand if its count starts at zero
+  (`world/interiors-mesh.ts`). This is the same root cause as the NaN radius
+  warning noted in PLAN.md.
+- A budget on how many of something to draw has to be spent on what is on
+  screen. `PEOPLE.maxFigures` was filled in agent order from a fixed 700 m
+  radius, which is the whole settlement, so at 70 m the HUD reported 2400
+  figures drawn and none were visible: the frame was a hundred metres wide and
+  held about one per cent of them. `drawRadius(altitudeM)` ties the radius to
+  the camera.
+- Distances tuned against the old 1400 m city are still all over this code.
+  `AGENTS.nearM` was 400, which in a 460 m settlement meant almost every agent
+  updated every frame: with twelve thousand people that was 6.6 ms against a
+  budget of 4. When something is suddenly slow, look for a metre value that
+  used to be a small fraction of the world and now is most of it.
+- Measure the distribution, not the worst frame. The agent update has a median
+  of 1.1 ms and a p99 of 3.6; all the spikes are the pathfinding batch, so
+  `PEOPLE.pathsPerFrame` is the number that sets the worst one.

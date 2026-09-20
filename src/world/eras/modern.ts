@@ -136,7 +136,7 @@ export const MODERN_ERA: Era = {
   lots: MODERN_LOTS,
   vehicles: VEHICLES,
   thoughts: MODERN_THOUGHTS,
-  population: { people: 4000, vehicles: 800 },
+  population: { people: 12000, vehicles: 800 },
   interior: {
     wall: 0xe2ddd2,
     floor: 0xbcb6aa,

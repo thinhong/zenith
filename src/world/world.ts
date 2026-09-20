@@ -236,11 +236,16 @@ export function createWorld({
         for (const id of lotIds) {
           const lot = layout.lots[id];
           if (lot && lot.heightM > 0) {
-            interiors.add(buildInterior(lot, era.interior, towardX, towardZ));
+            interiors.add(lot.id, buildInterior(lot, era.interior, towardX, towardZ));
           }
         }
       },
-      lotAt: buildings.lotAt,
+      lotAt: (object, instanceId) => {
+        const direct = buildings.lotAt(object, instanceId);
+        if (direct) return direct;
+        const owner = interiors.lotAt(object, instanceId);
+        return owner === undefined ? undefined : layout.lots[owner];
+      },
     };
   }
 
@@ -489,7 +494,7 @@ export function createWorld({
       `era: ${current.era.name} ${current.era.year}` +
       `${isChanging(era) ? ` (${(era.progress * 100).toFixed(0)}%)` : ''}\n` +
       `roads: ${current.layout.roads.edges.length}  lots: ${current.layout.lots.length}\n` +
-      `people: ${people.count}  out: ${people.stats.outside}  walking: ${people.stats.walking}\n` +
+      `people: ${people.count}  out: ${people.stats.outside}  drawn: ${people.stats.drawn}  walking: ${people.stats.walking}\n` +
       `vehicles: ${traffic.system.stats.active}  thoughts: ${thoughts.stats.shown}\n` +
       `agents: ${(people.stats.updateMs + traffic.system.stats.updateMs).toFixed(2)} ms\n` +
       `hour: ${formatHour(clock.hourOfDay)}${clock.paused ? ' (paused)' : ''}`,

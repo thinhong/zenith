@@ -87,6 +87,11 @@ export const FOG = {
   farOffsetM: 2600,
 } as const;
 
+/** How far out figures are worth drawing, for a camera at this height. */
+export function drawRadius(altitudeM: number): number {
+  return Math.min(AGENTS.drawRadiusM, Math.max(AGENTS.drawMinM, altitudeM * AGENTS.drawPerAltitude));
+}
+
 export function fogRange(altitudeM: number): { nearM: number; farM: number } {
   return {
     nearM: altitudeM * FOG.nearScale + FOG.nearOffsetM,
@@ -108,9 +113,28 @@ export const AGENTS = {
   /** Above this, vehicles are not drawn at all. */
   vehicleDotsMaxM: 3500,
   /** Agents this close to the look-at point update every frame. */
-  nearM: 400,
+  /**
+   * Agents this close to the look-at point are updated every frame; the rest
+   * take turns. 400 m was written for a city of radius 1400, where it meant a
+   * small part of the town. In a settlement of 460 m it meant almost all of
+   * it, and with twelve thousand people that came to 6.6 ms a frame against a
+   * budget of 4.
+   */
+  nearM: 140,
   /** How often the rest update. One in this many frames. */
-  farStride: 8,
-  /** Figures are only drawn within this of the look-at point. */
+  farStride: 14,
+  /**
+   * Figures are only drawn within this of the look-at point, and the radius
+   * comes down with the camera.
+   *
+   * A fixed 700 m was the whole settlement, so the cap on figures was spent on
+   * people scattered across the town and only a handful of them landed in the
+   * frame. At 70 m the HUD said 2400 figures were being drawn and you could
+   * not see one, because the frame was about a hundred metres wide and held
+   * roughly one per cent of them. Tying the radius to altitude spends the
+   * budget on what is actually on screen.
+   */
   drawRadiusM: 700,
+  drawMinM: 90,
+  drawPerAltitude: 2.4,
 } as const;

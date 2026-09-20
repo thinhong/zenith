@@ -8,6 +8,7 @@ import {
   roleIndex,
   type Destination,
 } from '@/agents/schedule';
+import { storeysIn } from '@/world/interior';
 import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import { range, type Rng } from '@/world/seed';
 
@@ -17,11 +18,17 @@ import { range, type Rng } from '@/world/seed';
  * whole simulation budget (PLAN.md 3.1). Pure module, no three.js.
  */
 export const POOL = {
-  maxPeople: 4000,
+  /**
+   * A settlement of 0.66 km2 with two thousand buildings had four thousand
+   * people in it, which is two per building over nine floors. Opening one
+   * showed an empty office, because it genuinely was empty. A town has to be
+   * crowded before watching anybody in it means anything.
+   */
+  maxPeople: 14000,
   maxVehicles: 800,
   maxWaypoints: PATHS.maxWaypoints,
   /** How many people share one home lot, at most. */
-  perHomeLot: 6,
+  perHomeLot: 14,
   walkSpeedMS: { min: 1.2, max: 1.6 },
   /** Distance from the road centreline that people walk at, in metres. */
   pavementM: { min: 4.5, max: 6.5 },
@@ -148,6 +155,11 @@ export function populate(rng: Rng, pool: AgentPool, options: PopulateOptions): n
     pool.targetLot[placed] = startLot;
     pool.currentUse[placed] = destinationIndex(want);
     pool.state[placed] = isIndoors(want) ? STATE.inside : STATE.standing;
+    // A floor of their own from the first frame. `arrive()` sets this when
+    // somebody walks in, but most of the town starts the day already indoors
+    // and never walks anywhere during a short look, so without this every
+    // opened building had its whole population standing on the ground floor.
+    pool.storey[placed] = Math.floor(rng() * storeysIn(where.heightM));
     pool.position[placed * 3] = where.x;
     pool.position[placed * 3 + 1] = 0;
     pool.position[placed * 3 + 2] = where.z;

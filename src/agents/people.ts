@@ -11,7 +11,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { ViewState } from '@/core/camera';
-import { AGENTS } from '@/state/altitude';
+import { AGENTS, drawRadius } from '@/state/altitude';
 import { buildWalkPath } from '@/agents/paths';
 import {
   advanceAgent,
@@ -60,7 +60,11 @@ const PEOPLE = {
   /** Most figures drawn at once. Only those near the look-at point are. */
   maxFigures: 2400,
   /** How many routes may be worked out in one frame. */
-  pathsPerFrame: 12,
+  /**
+   * Routes worked out in one frame. The median frame costs about 1 ms; the
+   * spikes are all here, so this is the number that sets the worst one.
+   */
+  pathsPerFrame: 6,
   /** How often a person reconsiders where they should be, in seconds. */
   thinkEveryS: { min: 1.5, max: 3.5 },
   /** How high a walking figure bobs, in metres (PLAN.md 5). */
@@ -343,7 +347,8 @@ export function createPeople(options: PeopleOptions): People {
   }
 
   function drawFigures(view: ViewState): void {
-    const radiusSquared = AGENTS.drawRadiusM * AGENTS.drawRadiusM;
+    const radius = drawRadius(view.altitudeM);
+    const radiusSquared = radius * radius;
     let slot = 0;
     for (let i = 0; i < pool.count && slot < PEOPLE.maxFigures; i++) {
       const state = pool.state[i] ?? 0;

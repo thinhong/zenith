@@ -430,7 +430,7 @@ export const CITADEL_ERA: Era = {
   lots: CITADEL_LOTS,
   vehicles: VEHICLES,
   thoughts: CITADEL_THOUGHTS,
-  population: { people: 2500, vehicles: 220 },
+  population: { people: 8000, vehicles: 220 },
   interior: {
     wall: 0xdcd2bc,
     floor: 0x9c8462,
