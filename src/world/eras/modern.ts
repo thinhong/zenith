@@ -24,13 +24,13 @@ import type { TerrainSpec } from '@/world/terrain';
  * there, not by strong colour.
  */
 const PALETTE: EraPalette = {
-  townGround: 0x78756a,
-  land: 0x6f7a4e,
-  water: 0x44637a,
-  road: 0x5e6167,
-  roof: 0x8d9298,
-  canopy: 0x435c34,
-  trunk: 0x5a4a3a,
+  townGround: 0x8a8577,
+  land: 0x7e9155,
+  water: 0x4a86ac,
+  road: 0x6b6f77,
+  roof: 0x9aa0a8,
+  canopy: 0x4a7038,
+  trunk: 0x64513e,
   lampOn: 0xffd79a,
   courtyardChance: 0.18,
   canopyScale: 1.25,
@@ -39,16 +39,16 @@ const PALETTE: EraPalette = {
   windowGlow: 0.85,
   building: {
     // Downtown: concrete, weathered render and glass.
-    work: [0xa7adb3, 0x8e969e, 0xbcc0c4, 0x78848f, 0x9ba7b2],
+    work: [0xbcc4cc, 0x9fabb6, 0xd2d8de, 0x86a0b4, 0xafbdc8],
     // The low-rise: washed render in beige and grey, which is what a street of
     // tube houses actually looks like from above.
-    home: [0xbdb3a2, 0xa89e8e, 0xc9c2b2, 0x9d9a92, 0xb2a897, 0xaeb0a6],
-    market: [0xb6a992, 0xa39781, 0xc2b69f],
-    temple: [0x9c6b52, 0x8b5f48],
+    home: [0xd8c9ad, 0xc2b294, 0xdcd6c2, 0xb0b4a4, 0xc9bca4, 0xbcc4b8],
+    market: [0xd8bd8c, 0xc5a97a, 0xe2cca2],
+    temple: [0xb87755, 0xa66849],
     park: [0x000000],
     water: [0x000000],
   },
-  clothes: [0xe8eaec, 0xd6cab6, 0xaec2d2, 0xd2806a, 0xa0aeba, 0xdecb9e, 0xb6aacb, 0xc2cbae],
+  clothes: [0xfaf6ee, 0xe8d4b4, 0x9cc0dc, 0xe8806a, 0x7f92a4, 0xf0d89a, 0xb69ad4, 0xa8c48e],
 };
 
 const VEHICLES: VehicleProfile = {
@@ -78,17 +78,17 @@ const VEHICLES: VehicleProfile = {
  */
 const ROOF_STYLE: RoofStyle = {
   // Weathered terracotta and rusted sheet, not new tile.
-  tile: [0x96604a, 0x855440, 0xa66b4e, 0x7d6354, 0x8e6a4c, 0x6e6a62, 0x7a7168],
+  tile: [0xb06b4c, 0x9c5c40, 0xc27c58, 0x8f6c58, 0xa5734e, 0x7e7a70, 0x8a8076],
   grandTile: [0x9c6b52, 0x8b5f48],
   // Tar and gravel. A real flat roof is the darkest thing on a city block,
   // and that is most of what gives an aerial view its texture.
-  deck: [0x6b6f74, 0x5d6166, 0x767a7e, 0x666a6e, 0x7e8286],
-  clutter: [0x9aa0a6, 0x868c92, 0xa8aeb2],
+  deck: [0x7a7f86, 0x6c7178, 0x868b92, 0x757a81, 0x8e939a],
+  clutter: [0xaab0b8, 0x969ca4, 0xb8bec4],
   pitchedShare: 0.4,
   pitchedMaxM: 17,
   wingShare: 0.34,
   crowns: true,
-  crownTint: [0x9aa2aa, 0x88919a, 0xaeb6bd, 0x7e878f],
+  crownTint: [0xacb4bc, 0x98a1aa, 0xc0c8d0, 0x8e97a0],
 };
 
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {

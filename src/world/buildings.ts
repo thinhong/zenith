@@ -16,8 +16,10 @@ import {
   floor,
   fract,
   mix,
+  normalView,
   normalWorld,
   positionWorld,
+  pow,
   step,
   uniform,
   varying,
@@ -45,6 +47,9 @@ const WINDOW = {
 } as const;
 
 const ROOF = { thicknessM: 0.7, overhang: 1.05 } as const;
+
+/** The warm edge light on a silhouette. See createWindowMaterial. */
+const RIM = { r: 1.0, g: 0.86, b: 0.62, strength: 0.34, falloff: 3.5 } as const;
 
 export interface Buildings {
   group: Group;
@@ -253,11 +258,24 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
     .mul(detail)
     .mul(glowStrength);
 
+  /**
+   * A warm edge on every face that turns away from the camera. This is the
+   * one thing a painted background does that a lit box never will: the
+   * silhouette catches light and separates from whatever is behind it.
+   *
+   * `normalView.z` is 1 on a face pointing straight at the camera and 0 on one
+   * seen edge-on, so this is nothing but the rim. It is cheap, it costs no
+   * extra pass, and unlike an outline drawn in world units it holds its
+   * meaning from twelve metres to two thousand.
+   */
+  const rim = pow(float(1).sub(abs(normalView.z)), RIM.falloff).mul(RIM.strength);
+  const rimColour = vec3(RIM.r, RIM.g, RIM.b).mul(rim).mul(detail);
+
   const material = new MeshLambertNodeMaterial();
   material.colorNode = instanceColor.mul(shaded).mul(cloudShadow());
   // three declares emissiveNode only on MeshStandardNodeMaterial, but
   // NodeMaterial.setupLighting() reads it on every node material.
-  (material as MeshLambertNodeMaterial & { emissiveNode: unknown }).emissiveNode = glow;
+  (material as MeshLambertNodeMaterial & { emissiveNode: unknown }).emissiveNode = glow.add(rimColour);
 
   return {
     material,

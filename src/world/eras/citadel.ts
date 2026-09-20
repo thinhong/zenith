@@ -52,23 +52,23 @@ const CITADEL = {
 } as const;
 
 const TILE = {
-  lit: 0xd9985c,
-  sun: 0xc4834a,
-  shade: 0xa96c3c,
-  grey: 0x8e939a,
-  dull: 0x9c8468,
-  dark: 0x6f6152,
+  lit: 0xf2ac66,
+  sun: 0xdc9450,
+  shade: 0xc07a3e,
+  grey: 0x9aa2ac,
+  dull: 0xaf9472,
+  dark: 0x7c6d5c,
 } as const;
-const WALL = { violet: 0x8a7e9c, shade: 0x6f6680 } as const;
-const STONE = 0xc9c3ae;
+const WALL = { violet: 0x9b87bc, shade: 0x7d6e9c } as const;
+const STONE = 0xdcd6bf;
 
 const PALETTE: EraPalette = {
-  townGround: 0x79794f,
-  land: 0x6d7a49,
-  water: 0x41637a,
-  road: 0x8a7c62,
+  townGround: 0x8a8a5c,
+  land: 0x7c9052,
+  water: 0x4884a8,
+  road: 0x9c8c6e,
   roof: TILE.sun,
-  canopy: 0x445c33,
+  canopy: 0x4a7038,
   trunk: 0x584737,
   lampOn: 0xffcf86,
   // Half the compounds have a tree, which is what the reference is full of.

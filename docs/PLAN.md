@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v7, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v8, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -247,7 +247,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 
 - **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 8 m wide (modern), 4.5 m lanes (citadel). The road grid has a 40 m pitch, so blocks are about 28 m across. **The settlement fills a disc of radius 460 m**, ringed by low mountains from 760 m to 1600 m. Owner's decision, 20 Sep 2026: one small settlement rather than a city, so that every building can be worth looking at, and so that what is drawn is what is on screen. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
 - **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
-- **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is an aerial photograph, not a painting** (owner's decision, 20 Sep 2026, replacing "low saturation, slightly warm"). Two rules, and they pull against each other:
+- **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is painted daylight** (owner's decision, 20 Sep 2026; it was briefly an aerial photograph, and that set of values is in the git history). Two rules survive whichever way it goes, and they pull against each other:
   - Nothing sits below about `0x60`. A shaded side keeps roughly 45 percent of its value, so anything darker than that goes to mud, which is what the first version of every palette did.
   - Very little is saturated. A city from six hundred metres is grey, beige and dark green; colour appears in terracotta roofs, a painted wall and rust. Separation between uses is carried by value and by hue that is barely there.
 
@@ -498,6 +498,10 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Every building gets a roof from `world/roofscape.ts` | a city seen from above is mostly roofs, and flat-topped boxes read as a bar chart. Owner's words: "boring boxes without personality" |
 | 2026-09-20 | Shadows run to 800 m, not 300 | below that a cast shadow is most of what gives a city its shape |
 | 2026-09-20 | The daytime window pattern fades out by 520 m | a 3.6 m floor is about one pixel from there and a hard pattern sampled that finely turns into black moire |
+| 2026-09-20 | One small settlement, radius 460 m, not a city | owner's call. Nothing is culled, so the radius multiplies the cost of every frame; and at this size the detail budget per hectare is five times what it was |
+| 2026-09-20 | Everybody is drawn, indoors and out | the crowd was invisible while its thoughts floated over the roofs. Indoors people are placed inside their own building, a second pass shows whoever is hidden, and the aerial dots are not depth-tested |
+| 2026-09-20 | Rim light rather than an outline | a warm edge on faces turning away from the camera gives the silhouette an illustrated edge and costs no pass. A world-space outline cannot work here: one thick enough to read at 400 m is a border at 12 m, and the zoom range is the point. A real outline needs a screen-space pass |
+| 2026-09-20 | Look: painted daylight (owner's third and current call) | the palettes have now been photographic once and painted twice. The structural work (roofs, density, crowd, shadows, haze, windows) is the same either way; only the palette tables and the sky keyframes change, and the photographic set is in the history if it is wanted back |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

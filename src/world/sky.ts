@@ -49,10 +49,11 @@ interface SkyKey {
  * Keyframes through one day (PLAN.md 5). The last key repeats the first at
  * hour 24 so interpolation never has to wrap.
  *
- * These are daylight as a camera records it. Real midday light is close to
- * white with a faint blue cast, the haze is a pale grey-blue rather than a
- * white-out, and the sky a town sits under is far less saturated than the sky
- * a poster shows. The saturated version of this table read as a toy.
+ * These are daylight as a background painting sets it down: a warm sun, a
+ * clearly blue sky bounce so shadows go cool rather than grey, and haze with
+ * some colour left in it. A camera records midday as near-white, and that
+ * version of this table is in the history if it is ever wanted back; it read
+ * as accurate and flat.
  *
  * The intensities follow one rule: **at midday a flat surface facing the sky
  * renders at about its own colour.** With a Lambert material the light a top
@@ -73,9 +74,9 @@ const KEYS: readonly SkyKey[] = [
   { hour: 0.0, sky: 0x0e1832, fog: 0x1a2b4c, sun: 0xa8c4ec, sunI: 0.5, amb: 0x6a86bc, bounce: 0x4a4668, ambI: 0.95 },
   { hour: 4.5, sky: 0x1d3058, fog: 0x2f4876, sun: 0xaec8ec, sunI: 0.55, amb: 0x7690c4, bounce: 0x50506e, ambI: 1.05 },
   { hour: 6.5, sky: 0x96a8c4, fog: 0xe8b79a, sun: 0xffcb9c, sunI: 1.7, amb: 0xb8c8dc, bounce: 0xa88c6e, ambI: 1.8 },
-  { hour: 9.0, sky: 0x9cc0dd, fog: 0xcdd9e2, sun: 0xfff2dc, sunI: 2.0, amb: 0xc2d2e0, bounce: 0xb0a288, ambI: 2.15 },
-  { hour: 12.0, sky: 0x8fb8dc, fog: 0xd6e0e8, sun: 0xfffaee, sunI: 2.05, amb: 0xc8d6e4, bounce: 0xb4a68c, ambI: 2.25 },
-  { hour: 15.5, sky: 0x96bcdc, fog: 0xd8e0e6, sun: 0xfff2d6, sunI: 2.0, amb: 0xc4d4e2, bounce: 0xb2a488, ambI: 2.2 },
+  { hour: 9.0, sky: 0x8ec8ee, fog: 0xd2e6f2, sun: 0xfff0c8, sunI: 2.05, amb: 0xbcd8f0, bounce: 0xc4ac7e, ambI: 2.1 },
+  { hour: 12.0, sky: 0x7cc2f0, fog: 0xdcecf6, sun: 0xfff6dc, sunI: 2.1, amb: 0xc0dcf4, bounce: 0xc8b082, ambI: 2.2 },
+  { hour: 15.5, sky: 0x88c4ee, fog: 0xdeeaf2, sun: 0xfff0ce, sunI: 2.05, amb: 0xbedaf2, bounce: 0xc6ae80, ambI: 2.15 },
   { hour: 18.0, sky: 0x8a96b4, fog: 0xe3a884, sun: 0xffb37c, sunI: 1.85, amb: 0xb4c2d8, bounce: 0xa88866, ambI: 1.85 },
   { hour: 19.5, sky: 0x435270, fog: 0x8a6672, sun: 0xc5806f, sunI: 0.95, amb: 0x8492b2, bounce: 0x625060, ambI: 1.25 },
   { hour: 21.0, sky: 0x10203e, fog: 0x1e3052, sun: 0xa8c4ec, sunI: 0.52, amb: 0x6e88be, bounce: 0x4c4868, ambI: 0.98 },
