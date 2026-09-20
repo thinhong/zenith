@@ -10,20 +10,21 @@ import { isBuildable, waterDepthAt, type TerrainSpec } from '@/world/terrain';
  * returned fully connected: anything the water cut off is dropped.
  */
 export const ROADS = {
-  pitchM: 100,
-  streetWidthM: 12,
-  avenueWidthM: 18,
-  ringWidthM: 20,
+  /** A block is about this wide, so a street is one side of a short walk. */
+  pitchM: 40,
+  streetWidthM: 8,
+  avenueWidthM: 14,
+  ringWidthM: 15,
   /** How far a road must stay from open water. */
-  bankMarginM: 10,
-  ringNodes: 44,
+  bankMarginM: 8,
+  ringNodes: 40,
   /** A ring node joins the grid if a grid node is this close. */
-  ringSpurM: 160,
-  avenueCount: 3,
+  ringSpurM: 70,
+  avenueCount: 2,
   /** How far an avenue may sit off the centre of the city. */
-  avenueOffsetM: 300,
-  maxBridges: 3,
-  bridgeSpanM: 360,
+  avenueOffsetM: 110,
+  maxBridges: 2,
+  bridgeSpanM: 150,
   /** Keep bridges apart instead of bunching them at the narrowest point. */
   bridgeSpacingM: 450,
 } as const;

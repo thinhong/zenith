@@ -6,8 +6,8 @@ describe('altitudeBand', () => {
     expect(altitudeBand(10)).toBe('street');
     expect(altitudeBand(100)).toBe('roof');
     expect(altitudeBand(800)).toBe('mountain');
-    expect(altitudeBand(2000)).toBe('cloud');
-    expect(altitudeBand(5000)).toBe('satellite');
+    expect(altitudeBand(1500)).toBe('cloud');
+    expect(altitudeBand(2400)).toBe('satellite');
   });
 });
 

@@ -4,8 +4,13 @@
  */
 export const ALTITUDE = {
   min: 12,
-  start: 900,
-  max: 6000,
+  /** High enough to hold the whole settlement in frame, and no higher. */
+  start: 520,
+  /**
+   * Past about this the settlement is a smudge in a plain, which is not worth
+   * scrolling to. It was 6000 when the city was five times the area.
+   */
+  max: 2600,
 } as const;
 
 export type AltitudeBand = 'street' | 'roof' | 'mountain' | 'cloud' | 'satellite';
@@ -14,8 +19,8 @@ export type AltitudeBand = 'street' | 'roof' | 'mountain' | 'cloud' | 'satellite
 export const BANDS: ReadonlyArray<{ band: AltitudeBand; below: number }> = [
   { band: 'street', below: 60 },
   { band: 'roof', below: 300 },
-  { band: 'mountain', below: 1200 },
-  { band: 'cloud', below: 3500 },
+  { band: 'mountain', below: 900 },
+  { band: 'cloud', below: 1800 },
   { band: 'satellite', below: Number.POSITIVE_INFINITY },
 ];
 

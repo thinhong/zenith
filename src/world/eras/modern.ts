@@ -32,7 +32,7 @@ const PALETTE: EraPalette = {
   canopy: 0x435c34,
   trunk: 0x5a4a3a,
   lampOn: 0xffd79a,
-  courtyardChance: 0.04,
+  courtyardChance: 0.18,
   canopyScale: 1.25,
   lamps: true,
   windowsLit: 0.42,

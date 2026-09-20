@@ -90,8 +90,13 @@ describe('isBuildable', () => {
     const t = buildTerrain(mulberry32(1));
     let ok = 0;
     let total = 0;
-    for (let x = -1000; x <= 1000; x += 100)
-      for (let z = -1000; z <= 1000; z += 100) {
+    // Sample the settlement itself, not a fixed square of metres: the radius
+    // is a number that changes, and this used to sample a kilometre of empty
+    // plain around a town 460 m across.
+    const step = t.cityRadiusM / 12;
+    for (let x = -t.cityRadiusM; x <= t.cityRadiusM; x += step)
+      for (let z = -t.cityRadiusM; z <= t.cityRadiusM; z += step) {
+        if (Math.hypot(x, z) > t.cityRadiusM) continue;
         total++;
         if (isBuildable(t, x, z)) ok++;
       }

@@ -81,8 +81,9 @@ function geometryFor(kind: StructureKind): BufferGeometry {
   }
   if (kind === 'gable') return gableGeometry();
   if (kind === 'tank') {
-    // Six sides is enough at this size and keeps the faceted look.
-    const tank = new CylinderGeometry(0.5, 0.5, 1, 6);
+    // Four sides. A tank is about two metres across, so the extra facets were
+    // never visible and cost more than the building underneath them.
+    const tank = new CylinderGeometry(0.5, 0.5, 1, 4);
     tank.translate(0, 0.5, 0);
     return tank;
   }

@@ -27,21 +27,28 @@ import type { TerrainSpec } from '@/world/terrain';
  *
  * Everything is boxes, flattened pyramids and flat quads, like every other era.
  */
+/**
+ * Hue at about a third of life size. The plan is the real one; the distances
+ * are not, because the whole settlement is now 460 m in radius and the real
+ * citadel alone is two kilometres across. What matters is that the parts stay
+ * in proportion to each other and that a person can walk from the gate to the
+ * throne hall inside one slot of the day.
+ */
 const CITADEL = {
   /** Half the width of the outer wall square, in metres. */
-  wallHalfM: 470,
-  wallThicknessM: 20,
-  wallHeightM: 9,
+  wallHalfM: 175,
+  wallThicknessM: 8,
+  wallHeightM: 7,
   /** The opening in the middle of each side. */
-  gateWidthM: 46,
-  moatWidthM: 38,
+  gateWidthM: 20,
+  moatWidthM: 16,
   /** The inner enclosure, where the halls are. */
-  innerHalfM: 195,
-  innerThicknessM: 10,
-  innerHeightM: 6,
+  innerHalfM: 74,
+  innerThicknessM: 5,
+  innerHeightM: 5,
   /** Grid pitch of the lanes. Tighter than a modern city. */
-  pitchM: 70,
-  laneWidthM: 7,
+  pitchM: 26,
+  laneWidthM: 4.5,
 } as const;
 
 const TILE = {
@@ -65,7 +72,7 @@ const PALETTE: EraPalette = {
   trunk: 0x584737,
   lampOn: 0xffcf86,
   // Half the compounds have a tree, which is what the reference is full of.
-  courtyardChance: 0.55,
+  courtyardChance: 0.62,
   // Village trees: a mango over the yard is as wide as the house.
   canopyScale: 1.55,
   // No street lighting in 1800.
@@ -127,12 +134,15 @@ const ROOF_STYLE: RoofStyle = {
 const CITADEL_LOTS: LotProfile = {
   // A town of small compounds, not of city blocks: a house here is about ten
   // metres across, so a block holds a dozen of them with yards between.
-  lotsPerBlock: { min: 8, max: 16 },
-  minLotSideM: 6,
-  // The floor has to clear the minimum side plus both setbacks, or half the
-  // parts are split down to a size that is then thrown away.
-  splitFloorM: 15,
-  setbackM: 2.5,
+  lotsPerBlock: () => ({ min: 4, max: 10 }),
+  // Nothing in 1800 is tall, so the limit rarely bites; it stops a shrine on
+  // a sliver of a plot from becoming a tower.
+  maxAspect: 3.2,
+  minLotSideM: 3.2,
+  // Twice the minimum side plus the setbacks: a split that happens has to be a
+  // split that survives, or the last one of every block is thrown away.
+  splitFloorM: 7.5,
+  setbackM: 1,
   parkChance: (d) => 0.1 + 0.16 * smoothstep(0.35, 1, d),
   weights: (d) => {
     const court = 1 - smoothstep(0.18, 0.42, d);
@@ -251,13 +261,13 @@ function wallStructures(halfM: number, thickM: number, heightM: number, gateM: n
 
 /** A gate house: a violet base under two tiers of tile. */
 function gateStructures(x: number, z: number, acrossX: boolean, colour: number): Structure[] {
-  const w = acrossX ? 52 : 26;
-  const d = acrossX ? 26 : 52;
+  const w = acrossX ? 22 : 11;
+  const d = acrossX ? 11 : 22;
   return [
-    box(x, 0, z, w, 11, d, colour),
-    roof(x, 11, z, w * 1.35, 5.5, d * 1.35, TILE.sun),
-    box(x, 15, z, w * 0.6, 5, d * 0.6, colour),
-    roof(x, 20, z, w * 0.95, 4.5, d * 0.95, TILE.lit),
+    box(x, 0, z, w, 8, d, colour),
+    roof(x, 8, z, w * 1.35, 3.2, d * 1.35, TILE.sun),
+    box(x, 10.6, z, w * 0.6, 3.4, d * 0.6, colour),
+    roof(x, 14, z, w * 0.95, 2.6, d * 0.95, TILE.lit),
   ];
 }
 
@@ -270,7 +280,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
 
   const blocks = buildBlocks(terrain, shape).filter((block) => {
     // The precinct is laid out by hand, and nothing stands on the wall.
-    if (insideSquare(block.x, block.z, CITADEL.innerHalfM + 30)) return false;
+    if (insideSquare(block.x, block.z, CITADEL.innerHalfM + 13)) return false;
     return !onWall(block.x, block.z);
   });
   yield;
@@ -301,24 +311,24 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
     });
   };
   const hallPlan = [
-    { z: 120, wM: 92, dM: 36, heightM: 15 },
-    { z: 26, wM: 76, dM: 32, heightM: 13 },
-    { z: -56, wM: 62, dM: 28, heightM: 11 },
-    { z: -124, wM: 50, dM: 24, heightM: 9.5 },
+    { z: 46, wM: 40, dM: 16, heightM: 12 },
+    { z: 8, wM: 32, dM: 14, heightM: 10.5 },
+    { z: -24, wM: 26, dM: 12, heightM: 9 },
+    { z: -50, wM: 20, dM: 10, heightM: 8 },
   ];
   for (const plan of hallPlan) {
     add(0, plan.z, plan.wM, plan.dM, plan.heightM, 'temple');
     // Two smaller pavilions flank each hall, which is what fills the enclosure.
-    const offset = plan.wM / 2 + 46;
+    const offset = plan.wM / 2 + 17;
     for (const side of [-1, 1]) {
-      add(side * offset, plan.z - 6, 30, 20, plan.heightM * 0.55, 'work');
-      add(side * offset, plan.z + 34, 22, 16, plan.heightM * 0.45, 'work');
+      add(side * offset, plan.z - 3, 13, 9, plan.heightM * 0.55, 'work');
+      add(side * offset, plan.z + 14, 10, 7, plan.heightM * 0.45, 'work');
     }
   }
   // A row of offices along the inside of the enclosure's east and west walls.
   for (const side of [-1, 1]) {
     for (let i = 0; i < 5; i++) {
-      add(side * 152, -150 + i * 72, 26, 34, range(rng, 5, 7), 'work');
+      add(side * 58, -56 + i * 28, 11, 14, range(rng, 4.5, 6), 'work');
     }
   }
   const all = [...lots, ...halls].map((lot, index) => ({ ...lot, id: index }));
@@ -362,11 +372,11 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...gateStructures(0, CITADEL.innerHalfM, true, WALL.shade));
 
   // Paved courtyards between the halls, and the great forecourt.
-  structures.push(flat(0, 73, 120, 58, STONE));
-  structures.push(flat(0, -15, 100, 50, STONE));
-  structures.push(flat(0, -90, 82, 42, STONE));
-  structures.push(flat(0, 168, 96, 68, STONE));
-  structures.push(flat(0, 300, 90, 190, STONE));
+  structures.push(flat(0, 27, 46, 22, STONE));
+  structures.push(flat(0, -6, 38, 19, STONE));
+  structures.push(flat(0, -34, 31, 16, STONE));
+  structures.push(flat(0, 63, 36, 26, STONE));
+  structures.push(flat(0, 112, 34, 71, STONE));
 
   yield;
 
@@ -379,8 +389,8 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
 
 function onWall(x: number, z: number): boolean {
   for (const wall of [
-    { halfM: CITADEL.wallHalfM, bandM: CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM + 26 },
-    { halfM: CITADEL.innerHalfM, bandM: CITADEL.innerThicknessM / 2 + 16 },
+    { halfM: CITADEL.wallHalfM, bandM: CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM + 11 },
+    { halfM: CITADEL.innerHalfM, bandM: CITADEL.innerThicknessM / 2 + 7 },
   ]) {
     const edge = Math.max(Math.abs(x), Math.abs(z));
     if (Math.abs(edge - wall.halfM) < wall.bandM) return true;
@@ -396,7 +406,7 @@ export const CITADEL_ERA: Era = {
   lots: CITADEL_LOTS,
   vehicles: VEHICLES,
   thoughts: CITADEL_THOUGHTS,
-  population: { people: 2600, vehicles: 300 },
+  population: { people: 2500, vehicles: 220 },
   build,
 };
 

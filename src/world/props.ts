@@ -101,11 +101,14 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
   const group = new Group();
   group.name = 'props';
 
-  const trunkGeometry = new CylinderGeometry(1, 1, 1, 5);
+  // Three sides, not five. A trunk is 40 cm wide and was costing twenty
+  // triangles each; across the citadel's five thousand trees that was a third
+  // of every triangle in the world, for something under a pixel from 200 m.
+  const trunkGeometry = new CylinderGeometry(1, 1, 1, 3);
   trunkGeometry.translate(0, 0.5, 0);
   const canopyGeometry = new ConeGeometry(1, 1, 6);
   canopyGeometry.translate(0, 0.5, 0);
-  const postGeometry = new CylinderGeometry(1, 1, 1, 4);
+  const postGeometry = new CylinderGeometry(1, 1, 1, 3);
   postGeometry.translate(0, 0.5, 0);
   const headGeometry = new BoxGeometry(1, 1, 1);
 

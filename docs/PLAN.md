@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v6, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v7, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -54,6 +54,21 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 | Units | 1 world unit = 1 metre. Y is up. Ground is the plane y = 0. |
 
 ### 3.1 Performance budgets (hard limits; a change that breaks one is not merged)
+
+**Nothing is frustum-culled.** Every instanced mesh spans the whole settlement, so its bounding sphere covers everything and three never rejects it. That is fine while the settlement is small enough to be on screen, and it is the main reason the settlement is small: at radius 1400 m the whole city was drawn every frame, and again into the shadow map, however little of it was in view. If the settlement ever grows again, this has to become a spatial split, not a wish.
+
+**Sizes are written against the settlement radius, never in metres.** The water, the mountains and the road grid were first written as fixed metres for a 1400 m city. When the radius became 460 the same river was still 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the ground stopped being buildable, and one bank was left with nothing on it. Two tests caught it. Anything that scales with the place is a fraction of `TERRAIN.cityRadiusM`; wavenumbers scale the other way.
+
+**Budget after the shrink**, seed 1, measured with `vite-node`:
+
+| | before (radius 1400 m) | after (radius 460 m) |
+|---|---|---|
+| Modern lots | 1373 over 6.16 km² | 1925 over 0.66 km², about 2900/km² |
+| Modern triangles | 146,732 | 160,015 at 620 m |
+| Citadel triangles | 285,110 | about 86,000 |
+| Draw calls at 620 m | 32 | 32 |
+
+Where the triangles used to go, and it was not buildings: **trees were 55 to 65 percent of the world**, and tree trunks alone a third of it, at twenty triangles each for something 40 cm wide. Trunks are three-sided now, and water tanks four.
 
 - JavaScript bundle: at most 1.2 MB gzipped in total.
 - All static assets (audio, data, fonts): at most 15 MB in total.
@@ -230,7 +245,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 
 ## 5. Art direction
 
-- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 12 m wide (modern), 6 m (colonial), 3 m dirt paths (fields). The road grid has a 100 m pitch, so blocks are about 82 m across. The city fills a disc of radius 1400 m, ringed by low mountains from 1550 m to 2400 m. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
+- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 8 m wide (modern), 4.5 m lanes (citadel). The road grid has a 40 m pitch, so blocks are about 28 m across. **The settlement fills a disc of radius 460 m**, ringed by low mountains from 760 m to 1600 m. Owner's decision, 20 Sep 2026: one small settlement rather than a city, so that every building can be worth looking at, and so that what is drawn is what is on screen. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
 - **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
 - **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is an aerial photograph, not a painting** (owner's decision, 20 Sep 2026, replacing "low saturation, slightly warm"). Two rules, and they pull against each other:
   - Nothing sits below about `0x60`. A shaded side keeps roughly 45 percent of its value, so anything darker than that goes to mud, which is what the first version of every palette did.

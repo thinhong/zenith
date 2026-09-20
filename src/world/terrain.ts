@@ -13,12 +13,18 @@ export const TERRAIN = {
    * shows an edge: the fog (state/altitude.ts) is what ends it.
    */
   groundRadiusM: 12000,
-  /** Nothing is built beyond this. */
-  cityRadiusM: 1400,
-  mountainInnerM: 1550,
-  mountainOuterM: 2400,
+  /**
+   * Nothing is built beyond this. Owner's decision, 20 Sep 2026: one small
+   * settlement rather than a city, so that every building can be worth
+   * looking at. This used to be 1400 m, which is five times the area, and
+   * nothing was ever culled, so the whole of it was drawn every frame and
+   * again into the shadow map however little was on screen.
+   */
+  cityRadiusM: 460,
+  mountainInnerM: 760,
+  mountainOuterM: 1600,
   /** How far along its own direction the water centreline is generated. */
-  waterSpanM: 4000,
+  waterSpanM: 2400,
   /** How far the water reaches sideways, so no open edge is ever visible. */
   waterReachM: 20000,
 } as const;
@@ -69,28 +75,38 @@ export function buildTerrain(rng: Rng): TerrainSpec {
   };
 }
 
+/**
+ * Everything about the water is a fraction of the settlement, never a fixed
+ * number of metres. The first version was written in metres against a city of
+ * radius 1400, and when the settlement shrank to 460 the same river was still
+ * 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the
+ * ground stopped being buildable, and one bank ended up with nothing on it.
+ */
 function buildWater(rng: Rng): WaterSpec {
   const kind: WaterKind = rng() < 0.5 ? 'river' : 'coast';
   const angle = range(rng, 0, TAU);
   const dirX = Math.cos(angle);
   const dirZ = Math.sin(angle);
+  const r = TERRAIN.cityRadiusM;
 
   // A river crosses somewhere near the middle; a coast sits far enough out that
   // it takes a bite from the disc instead of drowning it. `angle` already covers
   // every orientation, so the offset never needs a random sign.
-  const baseOffsetM = kind === 'river' ? range(rng, -430, 430) : range(rng, 470, 1020);
+  const baseOffsetM = kind === 'river' ? range(rng, -0.31 * r, 0.31 * r) : range(rng, 0.34 * r, 0.73 * r);
 
   // Two sine waves give a bank that bends without ever doubling back, which
-  // keeps the centreline invertible (see waterDepthAt).
-  const a1 = range(rng, 60, 170);
-  const k1 = range(rng, 0.0008, 0.0018);
+  // keeps the centreline invertible (see waterDepthAt). The wavenumbers are per
+  // metre, so they scale the other way: a smaller town wants shorter bends.
+  const bend = 1400 / r;
+  const a1 = range(rng, 0.043 * r, 0.121 * r);
+  const k1 = range(rng, 0.0008 * bend, 0.0018 * bend);
   const p1 = range(rng, 0, TAU);
-  const a2 = range(rng, 25, 85);
-  const k2 = range(rng, 0.002, 0.004);
+  const a2 = range(rng, 0.018 * r, 0.061 * r);
+  const k2 = range(rng, 0.002 * bend, 0.004 * bend);
   const p2 = range(rng, 0, TAU);
 
   const tMinM = -TERRAIN.waterSpanM;
-  const tStepM = 200;
+  const tStepM = Math.max(25, r / 6);
   const samples = Math.ceil((-tMinM * 2) / tStepM) + 1;
   const offsetsM: number[] = [];
   for (let i = 0; i < samples; i++) {
@@ -107,22 +123,23 @@ function buildWater(rng: Rng): WaterSpec {
     tMinM,
     tStepM,
     offsetsM,
-    halfWidthM: kind === 'river' ? range(rng, 45, 95) : 0,
+    halfWidthM: kind === 'river' ? range(rng, 0.032 * r, 0.068 * r) : 0,
   };
 }
 
 function buildMountains(rng: Rng, water: WaterSpec): MountainSpec[] {
   const mountains: MountainSpec[] = [];
-  const count = 92;
+  const r = TERRAIN.cityRadiusM;
+  const count = 76;
   for (let i = 0; i < count; i++) {
     const a = (i / count) * TAU + range(rng, -0.035, 0.035);
     const r = range(rng, TERRAIN.mountainInnerM, TERRAIN.mountainOuterM);
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
-    const radiusM = range(rng, 170, 430);
+    const radiusM = range(rng, 0.14 * r, 0.33 * r);
     // Peaks standing in open water read as a mistake, not as islands.
     if (waterDepthAt(water, x, z) > -radiusM * 0.4) continue;
-    mountains.push({ x, z, radiusM, heightM: range(rng, 110, 400) });
+    mountains.push({ x, z, radiusM, heightM: range(rng, 0.14 * r, 0.5 * r) });
   }
   return mountains;
 }

@@ -10,19 +10,32 @@ import { isBuildable, type TerrainSpec } from '@/world/terrain';
  */
 export const LOTS = {
   /** Gap between a block and the road that runs past it. */
-  blockInsetM: 6,
-  /** Space left around a building inside its lot. */
-  setbackM: 2.5,
-  minLotSideM: 16,
-  minLotsPerBlock: 2,
-  maxLotsPerBlock: 6,
-  /** A block stops splitting once both sides are shorter than this. */
-  splitFloorM: 30,
+  blockInsetM: 2,
+  /**
+   * Space left around a building inside its lot. Small, because this is a
+   * street of tube houses: they crowd the pavement and share side walls.
+   */
+  setbackM: 1,
+  /**
+   * A tube house is about four metres across and fifteen deep, so the minimum
+   * is a narrow number, not a square one. Setting it at 5.5 quietly threw away
+   * the last split of every block: the splitter halves the longest side, so
+   * the final parts are narrow by construction, and they were all dropped.
+   */
+  minLotSideM: 3.5,
+  minLotsPerBlock: 6,
+  maxLotsPerBlock: 14,
+  /**
+   * A block stops splitting once both sides are shorter than this. Keep it at
+   * about twice `minLotSideM` plus the setbacks, so a split that happens is a
+   * split that survives.
+   */
+  splitFloorM: 8,
   /** Chance a whole block is given over to a park, downtown and at the edge. */
   parkChanceCentre: 0.05,
   parkChanceEdge: 0.15,
-  towerFromM: 55,
-  slabFromM: 18,
+  towerFromM: 48,
+  slabFromM: 16,
 } as const;
 
 export type LotUse = 'home' | 'work' | 'market' | 'temple' | 'park' | 'water';
@@ -59,7 +72,19 @@ export interface Corridor {
  * (how many lots, how tall, what they are for) lives in the era file.
  */
 export interface LotProfile {
-  lotsPerBlock: { min: number; max: number };
+  /**
+   * How many lots a block is cut into, by distance from the centre. Downtown
+   * takes fewer and larger ones, so a tower has ground to stand on; the edge
+   * takes many narrow ones, which is a street of houses.
+   */
+  lotsPerBlock: (normalisedDistance: number) => { min: number; max: number };
+  /**
+   * The tallest a building may be for the width of its own plot, as a
+   * multiple of its shorter side. Without this the small-lot rewrite put
+   * sixty-metre towers on five-metre footprints and downtown looked like a
+   * pincushion.
+   */
+  maxAspect: number;
   minLotSideM: number;
   splitFloorM: number;
   setbackM: number;
@@ -129,8 +154,9 @@ export function buildLots(
       continue;
     }
 
-    const spread = profile.lotsPerBlock.max - profile.lotsPerBlock.min + 1;
-    const target = profile.lotsPerBlock.min + Math.floor(rng() * spread);
+    const count = profile.lotsPerBlock(blockDistance);
+    const spread = count.max - count.min + 1;
+    const target = count.min + Math.floor(rng() * spread);
     for (const part of splitRect(rng, block, target, profile.splitFloorM)) {
       const wM = part.wM - profile.setbackM * 2;
       const dM = part.dM - profile.setbackM * 2;
@@ -138,7 +164,11 @@ export function buildLots(
       if (crossesCorridor(corridors, part)) continue;
       const distance = Math.hypot(part.x, part.z) / cityRadiusM;
       const use = pickUse(rng, distance, profile);
-      const heightM = profile.heightFor(rng, use, distance);
+      // A building cannot be taller than its own plot can carry.
+      const heightM = Math.min(
+        profile.heightFor(rng, use, distance),
+        Math.min(wM, dM) * profile.maxAspect,
+      );
       lots.push(makeLot(lots.length, { ...part, wM, dM }, use, heightM, rng(), profile));
     }
   }
@@ -163,7 +193,15 @@ export function useWeights(normalisedDistance: number): Record<Exclude<LotUse, '
 
 /** The modern era's own settings, and the default for anything that does not say. */
 export const MODERN_LOTS: LotProfile = {
-  lotsPerBlock: { min: LOTS.minLotsPerBlock, max: LOTS.maxLotsPerBlock },
+  lotsPerBlock: (d) => {
+    // Downtown blocks are cut into two or three plots; the edge into a dozen.
+    const t = smoothstep(0.15, 0.55, d);
+    return {
+      min: Math.round(2 + (LOTS.minLotsPerBlock - 2) * t),
+      max: Math.round(4 + (LOTS.maxLotsPerBlock - 4) * t),
+    };
+  },
+  maxAspect: 4.2,
   minLotSideM: LOTS.minLotSideM,
   splitFloorM: LOTS.splitFloorM,
   setbackM: LOTS.setbackM,
