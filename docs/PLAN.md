@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v3, 20 September 2026. M0, M1 and M2 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v4, 20 September 2026. M0 to M3 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -129,8 +129,9 @@ src/
     people.ts              three.js: walking, arriving, instanced figures and points (done)
     traffic.ts             three.js: vehicles on the road graph, boxes and points (done)
   thoughts/
-    thoughts.ts            ThoughtSystem: picks people, projects to screen, DOM labels
-    content.ts             thought texts by era and by place (data only)
+    content.ts             pure: thought texts by era and by place, data only (done)
+    select.ts              pure: who is thinking out loud, and for how long (done)
+    thoughts.ts            three.js + DOM: projects heads to screen, places the pills (done)
   souls/
     souls.ts               SoulSystem: pick, follow, life card, hand-over animation
     lives.ts               life card templates by era (data only)
@@ -320,9 +321,19 @@ Acceptance:
 - Morning and evening show visible commute waves.
 - Simulation CPU under 4 ms per frame with 4000 people + 800 vehicles (measure with `performance.now()` around the update and print in the HUD).
 
-### M3. Thoughts
+### M3. Thoughts (done, 20 Sep 2026)
 
 Goal: below 60 m, short thoughts appear above nearby people and vanish as you rise.
+
+Closed with 73 thoughts, 117 unit tests, 268 kB gzipped. Screenshots in `docs/screenshots/`: `m3.png` (someone sitting in a park), `m3-market.png` (two pills nudged apart at a market). Not yet checked on a real phone, the same open item as M1 and M2.
+
+The acceptance thresholds are asserted in `src/state/altitude.test.ts` rather than judged from a screenshot: gone at 70 m and at 66, under a quarter opacity at 60, full at 44. Measured on a render, the text contributes nothing above the background at 72 m, about three pixels at 62 m, and reads clearly at 52 m.
+
+What changed beyond the task list:
+
+- **People start the day where their schedule puts them.** Everyone used to spawn at home, so opening the world at noon meant minutes of the city walking itself into position before it looked like anything.
+- **Pills are not depth tested.** They are DOM, so a thought shows even when its person is behind a building. Occluding them would mean a depth read per label per frame, and from the street band it is rarely noticeable. Left as it is.
+- **A thought is chosen by a steady hash of person and place**, not at random, so the same person keeps the same worry rather than flickering between them.
 
 Tasks:
 1. `thoughts/content.ts`: at least 60 thoughts for the modern era, grouped by place (`home`, `work`, `market`, `temple`, `park`, `street`). Plain, present-tense, first-person, under 60 characters. Relatable and gentle (deadlines, money, love, health, small errands, career, food). No mocking, no politics, no brand names.
@@ -401,7 +412,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
-- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` pins the day clock; `?alt=5200` opens at that altitude. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
+- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
 ## 9. Decisions log
 
@@ -418,6 +429,8 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Hemisphere light, not ambient | tower sides need sky light or downtown reads as a black mass |
 | 2026-09-20 | Window lights keyed to world position, with instance attributes wrapped in `varying()` | keeps the pattern in the fragment stage and lines floors up across the city |
 | 2026-09-20 | Shadows below 300 m only, with 40 m hysteresis | the toggle rebuilds shaders, so it must not trip twice a second |
+| 2026-09-20 | People spawn where the opening hour puts them | starting everyone at home meant minutes of settling before the city looked inhabited |
+| 2026-09-20 | Thought pills are not occluded by buildings | they are DOM; a depth read per label per frame is not worth it at this scale |
 | 2026-09-20 | A day lasts 15 real minutes, not 6 | at 6 a schedule slot was shorter than the walk it started, so nobody ever arrived anywhere |
 | 2026-09-20 | People go to the nearest market, park or temple, and work near home | same reason: an errand has to fit inside the slot of the day that sent them out |
 | 2026-09-20 | Vehicles take a random turn at junctions instead of routing | indistinguishable from above, and it costs no pathfinding |
