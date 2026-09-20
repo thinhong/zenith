@@ -87,3 +87,25 @@ Start with M2 in `docs/PLAN.md`.
   barely advances during a screenshot. To watch behaviour over a whole day, run
   the systems in node with vite-node and print counts; only use screenshots to
   check how something looks.
+- Frame timings from the headless renderer are meaningless. It runs at ten
+  frames a second on a software rasteriser, and `requestAnimationFrame` is
+  throttled while a Playwright script sleeps, so a three second transition can
+  take twenty seconds of wall clock. Time the JavaScript in node with vite-node
+  instead, warming each path once before measuring, and use the browser only to
+  check that a thing happens and in what order.
+- Anything that runs once per lot must not scan a list of the same order. The
+  citadel has 5176 lots and 1091 road nodes; `nearestNode` per lot cost 26 ms of
+  one frame. `roads.ts buildNodeIndex` and `lots.ts buildLotIndex` are the grids
+  for this.
+- A grid search for the nearest thing cannot stop one ring after the first hit.
+  Ring distance is measured in cells, not metres, so from outside the city the
+  true nearest can be several rings past the first one found. Stop when the
+  ring's inner edge, `(ring - 1) * cellM`, is further than the best distance so
+  far. Both searches have a test against a full scan; keep them.
+- Work that builds a world must be split across frames. `Era.build` is a
+  generator that yields between stages and `world/world.ts` wraps it in another
+  that yields after each mesh, because doing it in one call costs 174 ms.
+  `buildLayout()` runs one to the end for tests and for the first city.
+- Do not copy a placement list to change one field on it. `props.ts` used to map
+  its trees twice, once for trunks and once for canopies, which cost 37 ms for
+  4400 trees; passing three size functions over the one list costs 9.

@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v4, 20 September 2026. M0 to M3 closed. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v5, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -101,7 +101,7 @@ src/
   state/
     altitude.ts            bands, boundaries, smoothstep blends, detail fades, fog range (done)
     clock.ts               day clock (0..24 h), speed, pause (done)
-    era.ts                 current era id, transition progress 0..1
+    era.ts                 current era id, transition progress 0..1 (done)
     settings.ts            seed, reduced motion, debug overrides from the URL (done)
   world/
     seed.ts                deterministic PRNG (done)
@@ -114,13 +114,14 @@ src/
     lots.ts                pure: city blocks split into lots; each lot has a use (done)
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
     props.ts               three.js: trees and street lamps (done); boats in M5
+    structures.ts          three.js: walls, gates, roofs and paving an era places by hand (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
-      index.ts             Era interface + registry
+      index.ts             Era interface + registry (done)
       fields.ts            era 1: rice fields, huts, dirt paths, ox carts (~1500)
-      citadel.ts           era 2: walled town, temple, market (~1800)
+      citadel.ts           era 2: walled town, temple, market (~1800) (done)
       colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
-      modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default)
+      modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default) (done)
       after.ts             era 5: overgrown ruins, birds, few people (~2300)
   agents/
     pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
@@ -139,7 +140,7 @@ src/
     audio.ts               AudioSystem: context, gesture unlock, wind, murmur, accents
   ui/
     hud.ts                 debug overlay, H to toggle (done)
-    bar.ts                 bottom bar: era dial, vantage buttons, mute, help; auto-hide
+    bar.ts                 bottom bar: era dial, vantage buttons, mute, help; auto-hide (era dial and help done)
     lifecard.ts            the three-line card for a followed person
   content/                 (optional) shared palettes and names
 public/
@@ -222,6 +223,10 @@ Transitions use `smoothstep` over a 20 percent window around each boundary so no
 ### 4.6 Era transition
 
 A transition is a value from 0 to 1 over about 3 seconds. Old buildings scale their height toward 0 (sink), new ones scale from 0 to full. Roads cross-fade by colour. Agents are re-spawned for the new era during the middle of the transition (they are tiny, nobody notices). Sounds cross-fade. Only two eras are ever in memory at once.
+
+The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/world.ts` owns the meshes and the three.js side.
+
+**The new era is built one step per frame, not all at once.** Laying out and meshing the citadel takes about 100 ms in total, which in a single frame is six dropped frames at 60 fps. So `Era.build` is a generator that yields between stages, and `world.ts` wraps it in a larger generator that also yields after each mesh. The bar lights the stop that is coming while the build runs, and `beginEraChange` only fires when the last step returns. Measured warm in node, the worst single step is 28 ms and the reseat at t = 0.5 is 14 ms, both inside a 30 fps frame (33 ms). See section 6, M5.
 
 ## 5. Art direction
 
@@ -360,20 +365,41 @@ Acceptance:
 - On a phone, pinch zoom and one-finger orbit work; the bar is tappable; nothing is under the notch.
 - Site loads and shows the first frame under 3 s on throttled "Fast 4G" in Chrome devtools.
 
-### M5. Eras
+### M5. Eras (part closed, 20 Sep 2026)
 
 Goal: the same land through five eras, with a time dial and a "century in a minute" time-lapse.
 
+Closed in this pass: the `Era` interface and registry, the modern city refactored into `eras/modern.ts`, the citadel built properly, the sink-and-rise transition, and the era dial in the bottom bar. Left for later: the fields, colonial and after eras, the "century in a minute" button, and the audio cross-fade (which waits on M4).
+
+Numbers: 13 draw calls and 269k triangles for the citadel at 1500 m, 22 draw calls and 407k triangles during a transition with both eras in memory, 274 kB gzipped, 131 unit tests. Screenshots in `docs/screenshots/`: `m5-citadel.png` (1500 m, morning), `m5-citadel-low.png` (520 m, where the compounds and the halls read), `m5-citadel-night.png`, `m5-transition.png` (the modern towers rising through the sinking citadel). Not yet checked on a real phone, the same open item as M1 to M3.
+
+What changed beyond the task list:
+
+- **The era build runs one step per frame.** See section 4.6. Doing it in one call cost 174 ms, which is six dropped frames. Split into steps, the worst is 28 ms.
+- **Road nodes are found through a grid** (`roads.ts buildNodeIndex`). `nearestNode` scans the whole graph, which is fine once but not once per lot: 5176 lots against 1091 nodes cost 26 ms of a single frame, now 7.
+- **The nearest-lot search had a real bug.** Both grid searches stopped one ring after the first hit. From outside the city the first hit can be fifteen rings out and the true nearest several rings further, so a person at the edge of town could be sent to the wrong market. The stop test is now the ring's inner edge against the best distance so far, which is exact. Both searches have a test against a full scan.
+- **Trees are placed per compound, not only in parks.** The reference picture is half tree cover, and the citadel needs about 4400 trees to read that way. `PropPalette` gained `courtyardChance` and `canopyScale`; the modern city sets them near zero and 1.
+- **Props no longer copy their placements.** A trunk and its canopy now read one shared list through three size functions. Copying 4400 trees twice cost 37 ms; writing the matrices directly costs 9.
+- **Each era sets its own window lighting.** A town on oil lamps showed the modern grid of white panes at night. `windowsLit` and `windowGlow` moved into the palette: 0.42 and 0.85 for 2020, 0.08 and 0.3 for 1800.
+- **The people pool is allocated for the largest era.** It used to be sized for the era the page opened in, so entering 2020 from 1800 gave a city of 4000 only 2600 people.
+
 Tasks:
-1. `world/eras/index.ts`: the `Era` interface and registry. Refactor the modern city from M1 into `eras/modern.ts` so it becomes one generator among five. The terrain (disc, river, mountains) is shared across eras; only the layout changes.
-2. Generators: `fields.ts` (paddies as flat coloured quads with dyke lines, scattered huts, dirt paths, ox carts as vehicles, people in conical hats = a cone on the head), `citadel.ts` (a square wall with 4 gates, a temple lot at the centre, dense low houses, a market square, boats on the river), `colonial.ts` (low 2 to 3 storey ochre/yellow buildings, tree-lined boulevards, a tram line as a vehicle route, bicycles as vehicles), `after.ts` (modern layout but buildings partly sunk and green, trees everywhere, few people, birds as a `Points` flock, no cars).
-3. `state/era.ts` + transition (see 4.6): height scaling for sink/rise, road colour cross-fade, agent respawn at t = 0.5, audio cross-fade. Each era gets its own thought set (at least 40 per era) and murmur loop.
-4. Era dial in the bar: a horizontal slider with five stops and the year label; keys 1 to 5; "century in a minute" button that steps through eras 1 to 5, 12 s each, then stops.
+1. `world/eras/index.ts`: the `Era` interface and registry. Refactor the modern city from M1 into `eras/modern.ts` so it becomes one generator among five. The terrain (disc, river, mountains) is shared across eras; only the layout changes. **(done)**
+2. Generators: `fields.ts` (paddies as flat coloured quads with dyke lines, scattered huts, dirt paths, ox carts as vehicles, people in conical hats = a cone on the head), `citadel.ts` **(done)**, `colonial.ts` (low 2 to 3 storey ochre/yellow buildings, tree-lined boulevards, a tram line as a vehicle route, bicycles as vehicles), `after.ts` (modern layout but buildings partly sunk and green, trees everywhere, few people, birds as a `Points` flock, no cars).
+3. `state/era.ts` + transition (see 4.6): height scaling for sink/rise, road colour cross-fade, agent respawn at t = 0.5, audio cross-fade. Each era gets its own thought set (at least 40 per era) and murmur loop. **(done apart from the audio, which waits on M4; 73 modern and 50 citadel thoughts)**
+4. Era dial in the bar: a horizontal slider with five stops and the year label; keys 1 to 5; "century in a minute" button that steps through eras 1 to 5, 12 s each, then stops. **(dial, year labels and keys done; unbuilt eras are shown dimmed and do nothing; the time-lapse button is not built)**
+
+How the citadel is drawn (task 2, for whoever builds the other three):
+
+- The plan is Hue's. A square wall 940 m across with a gate in the middle of each side, a moat outside it, a smaller enclosure inside opening south only, and four halls down the central axis with paved courtyards between them. `cutAtWalls` drops every lane that crosses a wall away from a gate, then keeps the largest connected piece, so the walkers can still reach everywhere.
+- The town is made of small compounds, about 8 m across, not city blocks. That one number is most of what makes it read as 1800 rather than a low-rise 2020.
+- Nothing is a tower, so every building draws in the low mesh, and each one gets a four-sided roof from `structures.ts` that overhangs its walls by a quarter.
+- The palette comes from `docs/reference/citadel-style.png`: orange-gold tile, violet walls, pale stone paving. It is deliberately not drifted towards brick red for realism.
 
 Acceptance:
-- Switching eras never drops below 30 fps on a phone (measure the transition frame).
-- From satellite height each era is recognisable at a glance by its shape and colour.
-- People's thoughts change with the era but stay the same kind of worry (a farmer worries about rain, a clerk about the report).
+- Switching eras never drops below 30 fps on a phone (measure the transition frame). **Measured in node, not on a phone: the worst build step is 28 ms and the reseat is 14 ms, both inside a 33 ms frame. The phone check is still open.**
+- From satellite height each era is recognisable at a glance by its shape and colour. **Holds for the two built eras: the citadel is an orange grain inside a violet square, the modern city is grey with a dense centre.**
+- People's thoughts change with the era but stay the same kind of worry (a farmer worries about rain, a clerk about the report). **Done, and a few worries deliberately recur in both sets, which is the point of the piece.**
 
 ### M6. Souls
 
@@ -412,7 +438,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
-- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
+- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
 ## 9. Decisions log
 
@@ -436,6 +462,11 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Vehicles take a random turn at junctions instead of routing | indistinguishable from above, and it costs no pathfinding |
 | 2026-09-20 | Home and work take people indoors and out of sight | a figure at a desk inside a solid box cannot be seen; markets and parks keep people outdoors instead |
 | 2026-09-20 | Citadel era: Hue's layout, the reference image's style and palette | owner's call. Vietnamese place, so a square citadel with a moat and gates; but the flat cel shading, the orange-gold roofs against violet walls, and the heavy canopy come from `docs/reference/citadel-style.png` |
+| 2026-09-20 | An era is built one step per frame, not in one call | building the citadel in one call costs 174 ms, which is six dropped frames; the frame rate is a hard budget (3.1) |
+| 2026-09-20 | The transition starts when the build finishes, not when the stop is pressed | the alternative is a stall at the moment the viewer acts, which is the worst place for one; the bar lights the coming stop meanwhile |
+| 2026-09-20 | Nearest-lot and nearest-node searches stop at the ring's inner edge | stopping one ring after the first hit is wrong from outside the city, where the first hit can be fifteen rings out |
+| 2026-09-20 | Tree cover, window lighting and canopy size belong to the era palette | a town on oil lamps was showing the 2020 grid of lit windows, and the citadel needs about 4400 trees to look like the reference |
+| 2026-09-20 | The people pool is allocated for the largest era, not the opening one | entering 2020 from 1800 otherwise gives a city built for 4000 only 2600 people |
 
 ## 10. Open questions (decide before the milestone that needs them)
 
