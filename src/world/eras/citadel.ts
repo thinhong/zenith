@@ -1,5 +1,6 @@
 import { smoothstep } from '@/state/altitude';
 import { CITADEL_THOUGHTS } from '@/thoughts/citadel-content';
+import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
 import {
   avenueCorridors,
@@ -513,7 +514,7 @@ export const CITADEL_ERA: Era = {
   lots: CITADEL_LOTS,
   vehicles: VEHICLES,
   thoughts: CITADEL_THOUGHTS,
-  population: { people: 8000, vehicles: 220 },
+  population: { people: ERA_POPULATION, vehicles: 220 },
   interior: {
     wall: 0xdcd2bc,
     floor: 0x9c8462,

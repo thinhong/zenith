@@ -54,7 +54,7 @@ export function createBar(options: BarOptions): Bar {
     const stop = document.createElement('button');
     stop.className = 'stop';
     stop.type = 'button';
-    stop.innerHTML = `<span class="year">${label.year}</span><span class="name">${label.name}</span>`;
+    stop.innerHTML = `<span class="year">${label.stamp}</span><span class="name">${label.name}</span>`;
     if (!options.built.has(id)) {
       stop.classList.add('unbuilt');
       stop.disabled = true;
@@ -128,7 +128,7 @@ export function createBar(options: BarOptions): Bar {
   sheet.innerHTML = [
     '<b>Scroll</b> or pinch to rise and fall',
     '<b>Drag</b> to turn, right-drag to move',
-    '<b>1</b> to <b>5</b> change the era',
+    '<b>1</b> to <b>4</b> change the era',
     '<b>Slider</b> sets the hour',
     '<b>Space</b> holds the day still',
     '<b>Click</b> a building to open it, again to shut it',

@@ -291,20 +291,41 @@ export interface NodeIndex {
  */
 export function buildNodeIndex(graph: RoadGraph, cellM: number = NODE_INDEX_CELL_M): NodeIndex {
   const buckets = new Map<string, number[]>();
+  /** The cells the graph actually occupies, or null for an empty graph. */
+  let bounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
   for (const node of graph.nodes) {
-    const key = `${Math.floor(node.x / cellM)},${Math.floor(node.z / cellM)}`;
+    const cx = Math.floor(node.x / cellM);
+    const cz = Math.floor(node.z / cellM);
+    const key = `${cx},${cz}`;
     const list = buckets.get(key);
     if (list) list.push(node.id);
     else buckets.set(key, [node.id]);
+    if (!bounds) bounds = { minX: cx, maxX: cx, minZ: cz, maxZ: cz };
+    else {
+      if (cx < bounds.minX) bounds.minX = cx;
+      if (cx > bounds.maxX) bounds.maxX = cx;
+      if (cz < bounds.minZ) bounds.minZ = cz;
+      if (cz > bounds.maxZ) bounds.maxZ = cz;
+    }
   }
+  const box = bounds;
 
   return {
     nearest: (x, z) => {
+      // Empty graph: nothing to find, and no reason to sweep for it. See the
+      // same guard in lots.ts for what the unbounded version cost.
+      if (!box) return -1;
       const cx = Math.floor(x / cellM);
       const cz = Math.floor(z / cellM);
+      const maxRing = Math.max(
+        Math.abs(cx - box.minX),
+        Math.abs(cx - box.maxX),
+        Math.abs(cz - box.minZ),
+        Math.abs(cz - box.maxZ),
+      );
       let best = -1;
       let bestDistance = Infinity;
-      for (let ring = 0; ring <= 256; ring++) {
+      for (let ring = 0; ring <= maxRing; ring++) {
         // Nothing in this ring or beyond can be nearer than its inner edge, so
         // once that edge is further than the best so far, the search is done.
         // Stopping one ring after the first hit is wrong: from outside the

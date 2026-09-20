@@ -147,7 +147,9 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
   const roundGeometry = new IcosahedronGeometry(0.5, 1);
   roundGeometry.scale(1, 0.78, 1);
   roundGeometry.translate(0, 0.5, 0);
-  const bushGeometry = new IcosahedronGeometry(0.5, 1);
+  // A shrub is a metre across. Detail 1 on something that size is eighty
+  // triangles for a blob; detail 0 is twenty and looks the same from 40 m up.
+  const bushGeometry = new IcosahedronGeometry(0.5, 0);
   bushGeometry.translate(0, 0.45, 0);
   const postGeometry = new CylinderGeometry(1, 1, 1, 3);
   postGeometry.translate(0, 0.5, 0);
@@ -166,15 +168,61 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
         () => 0,
       ),
     );
+  }
+
+  /**
+   * Two crowns, not one.
+   *
+   * The second shape, the shrubs, `canopyRound`, `roundShare`, `bush` and
+   * `bushesPerTree` were all written, all set by all three eras, and none of
+   * them were ever drawn: `createProps` built the geometry and then never
+   * passed it to `instanced`, and never read `placements.bushes` at all. So
+   * every tree in every era was the same cone and there was not one shrub in
+   * the world, which is exactly the plantation the comment above says the
+   * second shape exists to avoid.
+   */
+  const cones = trees.filter((tree) => !tree.round);
+  const rounds = trees.filter((tree) => tree.round);
+  if (cones.length > 0) {
     group.add(
       instanced(
         canopyGeometry,
         lambert(palette.canopy, true),
-        trees,
+        cones,
         'tree-canopies',
         (t) => t.radiusM,
         (t) => t.heightM * 0.7,
         (t) => t.heightM * 0.34,
+      ),
+    );
+  }
+  if (rounds.length > 0) {
+    group.add(
+      instanced(
+        roundGeometry,
+        lambert(palette.canopyRound, true),
+        rounds,
+        'tree-crowns',
+        // Wider and lower than a cone of the same tree: a round crown that
+        // keeps the cone's proportions reads as a lollipop.
+        (t) => t.radiusM * 2.3,
+        (t) => t.heightM * 0.72,
+        (t) => t.heightM * 0.3,
+      ),
+    );
+  }
+
+  const bushes = placements.bushes;
+  if (bushes.length > 0) {
+    group.add(
+      instanced(
+        bushGeometry,
+        lambert(palette.bush, true),
+        bushes,
+        'bushes',
+        (b) => b.radiusM * 2,
+        (b) => b.heightM,
+        () => 0,
       ),
     );
   }

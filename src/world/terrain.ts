@@ -133,13 +133,22 @@ function buildMountains(rng: Rng, water: WaterSpec): MountainSpec[] {
   const count = 76;
   for (let i = 0; i < count; i++) {
     const a = (i / count) * TAU + range(rng, -0.035, 0.035);
-    const r = range(rng, TERRAIN.mountainInnerM, TERRAIN.mountainOuterM);
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
-    const radiusM = range(rng, 0.14 * r, 0.33 * r);
+    // How far out this one stands. It used to be called `r` as well, which
+    // shadowed the settlement radius above and meant a peak's size was taken
+    // from its own distance from the centre: the ones on the outer edge came
+    // out five times the volume of the ones on the inner edge, for no reason
+    // anybody chose. It is the fault PLAN.md 3.1 warns about, and the unused
+    // variable left behind by the shadowing is what gave it away.
+    const distanceM = range(rng, TERRAIN.mountainInnerM, TERRAIN.mountainOuterM);
+    const x = Math.cos(a) * distanceM;
+    const z = Math.sin(a) * distanceM;
+    // Fractions of the settlement radius, chosen to land on the same average
+    // size the shadowed version happened to produce, so the horizon does not
+    // change shape when this is fixed.
+    const radiusM = range(rng, 0.36 * r, 0.84 * r);
     // Peaks standing in open water read as a mistake, not as islands.
     if (waterDepthAt(water, x, z) > -radiusM * 0.4) continue;
-    mountains.push({ x, z, radiusM, heightM: range(rng, 0.14 * r, 0.5 * r) });
+    mountains.push({ x, z, radiusM, heightM: range(rng, 0.36 * r, 1.28 * r) });
   }
   return mountains;
 }

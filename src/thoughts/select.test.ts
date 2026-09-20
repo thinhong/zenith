@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectThoughts, steadyPick, type ThoughtCandidate, type ThoughtSlot } from './select';
+import { selectThoughts, steadyPick, type ThoughtCandidate } from './select';
 import { MODERN_THOUGHTS, THOUGHT_PLACES } from './content';
 
 const pick = (place: string, agent: number): number => (agent + place.length) % 7;

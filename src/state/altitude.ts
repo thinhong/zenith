@@ -127,8 +127,7 @@ export const AGENTS = {
    *
    * It sits on the roof band boundary on purpose. A person is roughly
    * 1450/altitude pixels tall, so three metres up from here a figure is three
-   * pixels and its hundred and eighty triangles buy nothing a dot does not
-   * give; and above the roof band you are looking at the town rather than at
+   * pixels and its triangles buy nothing a dot does not give; and above the roof band you are looking at the town rather than at
    * anybody in it.
    */
   figuresMaxM: 300,

@@ -31,6 +31,14 @@ export interface RoofStyle {
   /** Above this height nothing is pitched. */
   pitchedMaxM: number;
   /**
+   * Rise of a ridged roof as a share of the building's short side, when the
+   * era wants something other than the default. A steep roof is most of what
+   * separates a northern medieval town from a tropical one: the same house
+   * plan under a 0.34 roof and a 0.85 roof reads as two different centuries
+   * and two different climates.
+   */
+  pitch?: number;
+  /**
    * Whether a pitched roof is a Hue one: the concave sweep with the corners
    * turned up (`world/roof-geometry.ts`). Only 1800 sets this. On a 2020
    * suburban house the same eave would be fancy dress.
@@ -136,6 +144,7 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
  * from the houses around them, which are the same orange rectangles otherwise.
  */
 function ridged(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: number): void {
+  const pitch = style.pitch ?? ROOFS.pitch;
   const alongX = lot.wM >= lot.dM;
   const grow = shortM * ROOFS.overhang * 2;
   const kind = style.curvedEaves ? 'hue' : 'gable';
@@ -149,7 +158,7 @@ function ridged(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: 
     y: lot.heightM,
     z: lot.z,
     wM: longM + grow,
-    hM: shortM * ROOFS.pitch,
+    hM: shortM * pitch,
     dM: shortM + grow,
     rotY,
     colour,
@@ -164,7 +173,7 @@ function ridged(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: 
   // ridge, carrying the upper roof.
   const upperLongM = longM * tiers.shrink;
   const upperShortM = shortM * tiers.shrink;
-  const bandY = lot.heightM + shortM * ROOFS.pitch * 0.34;
+  const bandY = lot.heightM + shortM * pitch * 0.34;
   out.push({
     kind: 'box',
     x: lot.x,
@@ -182,7 +191,7 @@ function ridged(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM: 
     y: bandY + tiers.gapM,
     z: lot.z,
     wM: upperLongM + grow,
-    hM: upperShortM * ROOFS.pitch,
+    hM: upperShortM * pitch,
     dM: upperShortM + grow,
     rotY,
     colour,
@@ -293,7 +302,7 @@ function chimney(out: Structure[], rng: Rng, lot: Lot, style: RoofStyle, shortM:
     y: lot.heightM,
     z: lot.z + (alongX ? 0 : along),
     wM: ROOFS.chimneyWidthM,
-    hM: shortM * ROOFS.pitch + range(rng, 0.6, 1.4),
+    hM: shortM * (style.pitch ?? ROOFS.pitch) + range(rng, 0.6, 1.4),
     dM: ROOFS.chimneyWidthM,
     rotY: 0,
     colour: pick(style.chimney.colours, lot.jitter),
@@ -396,7 +405,7 @@ function wing(
       y: heightM,
       z,
       wM: (wingW >= wingD ? wingW : wingD) + wingShort * ROOFS.overhang * 2,
-      hM: wingShort * ROOFS.pitch,
+      hM: wingShort * (style.pitch ?? ROOFS.pitch),
       dM: wingShort * (1 + ROOFS.overhang * 2),
       rotY: wingW >= wingD ? 0 : Math.PI / 2,
       colour: pick(style.tile, lot.jitter),

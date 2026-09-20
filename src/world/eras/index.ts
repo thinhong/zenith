@@ -12,22 +12,32 @@ import { MODERN_ERA } from '@/world/eras/modern';
  * One era is one layout of the same land (PLAN.md 9). The terrain never
  * changes; the roads, the lots, the colours and what people worry about do.
  */
-export type EraId = 'fields' | 'citadel' | 'colonial' | 'modern' | 'after';
-
-/** The five in order, oldest first. Not all of them are built yet. */
-export const ERA_ORDER: readonly EraId[] = ['fields', 'citadel', 'colonial', 'modern', 'after'];
+export type EraId = 'myth' | 'citadel' | 'modern' | 'after';
 
 /**
- * Names and years for the dial, including the eras that are not built. The
- * viewer should be able to see that there are five, even while three of the
- * stops are still dark.
+ * The four in order, oldest first.
+ *
+ * There were five. 1500 Fields and 1930 Colonial were planned and never
+ * built, and on the owner's call (20 Sep 2026) both slots were given up for
+ * one world instead: Wyrmrest, a mythic age before any of the others, with
+ * magic and monsters in it. Four places that are finished beats five with two
+ * dark stops on the dial, and it is the same call that made the settlements
+ * smaller and more detailed.
  */
-export const ERA_LABELS: Readonly<Record<EraId, { name: string; year: number }>> = {
-  fields: { name: 'Fields', year: 1500 },
-  citadel: { name: 'Citadel', year: 1800 },
-  colonial: { name: 'Colonial', year: 1930 },
-  modern: { name: 'Modern', year: 2020 },
-  after: { name: 'After', year: 2300 },
+export const ERA_ORDER: readonly EraId[] = ['myth', 'citadel', 'modern', 'after'];
+
+/**
+ * What the dial shows. `stamp` is the line above the name: a year for the
+ * historical eras, and for the mythic age a word, because it does not have
+ * one and pretending otherwise would be the only false note on the dial.
+ */
+export { ERA_POPULATION } from '@/world/eras/population';
+
+export const ERA_LABELS: Readonly<Record<EraId, { name: string; stamp: string }>> = {
+  myth: { name: 'Wyrmrest', stamp: 'Myth' },
+  citadel: { name: 'Citadel', stamp: '1800' },
+  modern: { name: 'Modern', stamp: '2020' },
+  after: { name: 'After', stamp: '2300' },
 };
 
 /**
@@ -142,7 +152,11 @@ export interface EraLayout {
 export interface Era {
   id: EraId;
   /** Shown on the dial. */
-  year: number;
+  /**
+   * Shown in the HUD beside the name. A number for the historical eras and a
+   * phrase for the mythic one, which has no year.
+   */
+  year: number | string;
   name: string;
   palette: EraPalette;
   lots: LotProfile;

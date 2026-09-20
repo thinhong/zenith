@@ -9,10 +9,12 @@ import {
 } from './content';
 import { AFTER_THOUGHTS } from './after-content';
 import { CITADEL_THOUGHTS } from './citadel-content';
+import { MYTH_THOUGHTS } from './myth-content';
 
 // Every era's set has to hold to the same rules, so they are tested together.
 const SETS: ReadonlyArray<[string, ThoughtSet, number]> = [
   ['modern', MODERN_THOUGHTS, 60],
+  ['myth', MYTH_THOUGHTS, 40],
   ['citadel', CITADEL_THOUGHTS, 40],
   ['after', AFTER_THOUGHTS, 40],
 ];

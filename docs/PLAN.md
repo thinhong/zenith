@@ -551,6 +551,18 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
 - URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
+## 8.1 What a full read of the code turned up (20 Sep 2026)
+
+An audit of every module, after the owner asked for one. The findings worth recording, because each is a class of fault rather than a one-off:
+
+- **Four palette fields did nothing.** `canopyRound`, `roundShare`, `bush` and `bushesPerTree` were declared, set by all three eras, carried into `PropPalette` and never drawn: `createProps` built the geometry for the second crown and the shrubs and then never passed either to `instanced`, and never read `placements.bushes` at all. So every tree in every era was the same cone and there was not one shrub in the world, which is exactly the plantation the code's own comment says the second shape exists to prevent. Written, configured, wired, never called.
+- **Choosing the era already on screen, during a build, wedged the world.** `showEra` let it through, `beginEraChange` then refused the no-op, and the cross-fade never started, so the recovery that restores the new city's height and removes the old group never ran. The old city stayed in the scene forever, a flat copy of it painted over the roads, and clicks landed on an invisible squashed duplicate so buildings stopped opening. Pressing two stops in quick succession was enough. The guard now asks what the world will be showing once everything in flight has settled.
+- **A missing lot use would have hung the tab.** `nearest` stops searching when the best distance so far beats the next ring's inner edge, and with nothing to find that distance stays infinite: all 193 rings ran, 9.6 million iterations and 148,000 string keys, per call. `populate` calls it once per person. It was unreachable only because every era happens to have every use. Both grid searches now know the cells their data occupies.
+- **Nothing was ever disposed.** Every era change orphaned a whole city's meshes, materials and instance buffers against a 300 MB budget.
+- **A shadowed variable made mountains grow with distance.** `buildMountains` bound `r` to the settlement radius and then shadowed it with the peak's own distance from the centre, so the outer ring came out five times the volume of the inner one. The unused-variable warning was the only sign.
+- **`reducedMotion` was read from the OS and passed to nothing.**
+- **Comments that had outlived their code**, including three written the same day, promising an altitude threshold that had been measured away.
+
 ## 9. Decisions log
 
 | Date | Decision | Why |
@@ -607,6 +619,10 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | The citadel's roofs get the triangles | owner's call: they are what the place is for. 198 triangles a roof, 300k in the town, and still one draw call because every roof is the same geometry scaled |
 | 2026-09-20 | The Hue eave is its own structure kind, not a better gable | the same sweep on a 2020 suburban house is fancy dress. 2020 and 2300 keep the plain gable |
 | 2026-09-20 | Hand-built geometry gets a test that checks its normals | all four barge ridges shipped wound face down and the render only looked slightly flat. A downward triangle still draws |
+| 2026-09-20 | The day opens at the viewer's own clock | the piece is about watching a town live out a day. Starting that day at the hour it actually is where the viewer sits is what ties the two together |
+| 2026-09-20 | Every era has the same population | 12,000 in 2020 against 8,000 in 1800 emptied the streets on a change of era, which reads as the simulation faltering rather than as a different century |
+| 2026-09-20 | Thoughts are picked from around the camera, not around its look-at point | the camera looks down at a slant, so a ring drawn around the target reaches past the people in front of the viewer and picks up the ones behind them |
+| 2026-09-20 | 1500 Fields and 1930 Colonial are given up for one fantasy world | owner's call. Four finished places beat five with two dark stops, which is the same call that made the settlements smaller and more detailed |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

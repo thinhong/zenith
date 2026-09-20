@@ -45,9 +45,15 @@ export function beginEraChange(state: EraState, to: EraId): boolean {
   return state.leaving !== null;
 }
 
-export function advanceEraChange(state: EraState, dtS: number): void {
+/**
+ * `overS` is how long the whole change should take. A viewer who has asked
+ * their system for less movement gets a cut instead of a three-second sink
+ * and rise, which is the one place in Zenith where a lot of the picture moves
+ * without them having asked it to.
+ */
+export function advanceEraChange(state: EraState, dtS: number, overS = ERA_TRANSITION_S): void {
   if (!isChanging(state)) return;
-  state.progress = Math.min(1, state.progress + dtS / ERA_TRANSITION_S);
+  state.progress = Math.min(1, state.progress + dtS / Math.max(1e-3, overS));
   if (state.progress >= 1) {
     state.leaving = null;
     state.reseated = true;

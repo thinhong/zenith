@@ -1,5 +1,6 @@
 import { smoothstep } from '@/state/altitude';
 import { AFTER_THOUGHTS } from '@/thoughts/after-content';
+import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
 import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
@@ -361,7 +362,7 @@ export const AFTER_ERA: Era = {
   vehicles: VEHICLES,
   thoughts: AFTER_THOUGHTS,
   // Denser than 2020 on the same ground, because it is built higher.
-  population: { people: 13000, vehicles: 300 },
+  population: { people: ERA_POPULATION, vehicles: 300 },
   interior: {
     wall: 0xeef2f4,
     floor: 0xc6ced2,

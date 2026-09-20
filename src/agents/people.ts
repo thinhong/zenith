@@ -1,5 +1,4 @@
 import {
-  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -9,7 +8,6 @@ import {
   Points,
   PointsMaterial,
 } from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { ViewState } from '@/core/camera';
 import { AGENTS, drawRadius } from '@/state/altitude';
 import { buildWalkPath } from '@/agents/paths';
@@ -42,7 +40,7 @@ import {
   writeInstanceMatrix,
 } from '@/world/instanced';
 import { figureGeometry } from '@/agents/figure';
-import { OUTDOOR_SPREAD, spotInside, spotOutside, storeyHeightM, storeysIn } from '@/world/interior';
+import { OUTDOOR_SPREAD, spotInside, spotOutside, storeyHeightM } from '@/world/interior';
 import { nearestNode, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 
@@ -518,10 +516,3 @@ export function createPeople(options: PeopleOptions): People {
   };
 }
 
-/**
- * Three boxes: legs, body, head, 1.7 m tall with its feet at y = 0 and its
- * front along local +x. No skeleton anywhere in Zenith (PLAN.md 5).
- */
-function fract(value: number): number {
-  return value - Math.floor(value);
-}

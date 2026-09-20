@@ -397,22 +397,66 @@ export interface LotIndex {
  * 1.4 m/s and a day of 15 minutes leave only a couple of hundred metres, so the
  * choice has to be the nearest one rather than a random one (PLAN.md 4.5).
  */
+interface CellBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** How far out the search can possibly need to go from a given cell. */
+function ringsToCover(bounds: CellBounds, cx: number, cz: number): number {
+  return Math.max(
+    Math.abs(cx - bounds.minX),
+    Math.abs(cx - bounds.maxX),
+    Math.abs(cz - bounds.minZ),
+    Math.abs(cz - bounds.maxZ),
+  );
+}
+
 export function buildLotIndex(lots: readonly Lot[], cellM: number = LOT_INDEX_CELL_M): LotIndex {
   const buckets = new Map<string, number[]>();
+  /**
+   * The cells each use actually occupies.
+   *
+   * Without this the search ran its full 193 rings whenever it found nothing,
+   * because the early-out compares against the best distance so far and that
+   * stays at infinity when there is nothing to find. That is about 9.6 million
+   * iterations and 148,000 string keys, per call. It is only reachable when an
+   * era has no lots of some use, and `populate` calls this once per person, so
+   * a town with no market would have hung the tab for minutes at startup
+   * rather than failing outright.
+   */
+  const bounds = new Map<LotUse, CellBounds>();
   for (const lot of lots) {
-    const key = cellKey(lot.use, Math.floor(lot.x / cellM), Math.floor(lot.z / cellM));
+    const cx = Math.floor(lot.x / cellM);
+    const cz = Math.floor(lot.z / cellM);
+    const key = cellKey(lot.use, cx, cz);
     const list = buckets.get(key);
     if (list) list.push(lot.id);
     else buckets.set(key, [lot.id]);
+    const box = bounds.get(lot.use);
+    if (!box) bounds.set(lot.use, { minX: cx, maxX: cx, minZ: cz, maxZ: cz });
+    else {
+      if (cx < box.minX) box.minX = cx;
+      if (cx > box.maxX) box.maxX = cx;
+      if (cz < box.minZ) box.minZ = cz;
+      if (cz > box.maxZ) box.maxZ = cz;
+    }
   }
 
   return {
     nearest: (use, x, z) => {
+      const box = bounds.get(use);
+      // Nothing of this kind anywhere. Say so now rather than sweeping the
+      // whole grid to discover it.
+      if (!box) return -1;
       const cx = Math.floor(x / cellM);
       const cz = Math.floor(z / cellM);
+      const maxRing = ringsToCover(box, cx, cz);
       let best = -1;
       let bestDistance = Infinity;
-      for (let ring = 0; ring <= 192; ring++) {
+      for (let ring = 0; ring <= maxRing; ring++) {
         // Nothing in this ring or beyond can be nearer than its inner edge, so
         // once that edge is further than the best so far, the search is done.
         if (ring > 1 && ((ring - 1) * cellM) ** 2 > bestDistance) break;

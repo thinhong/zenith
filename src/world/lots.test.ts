@@ -195,3 +195,36 @@ describe('buildLotIndex', () => {
     }
   });
 });
+
+describe('buildLotIndex on a town missing a use', () => {
+  const lots: Lot[] = [
+    { id: 0, x: 10, z: 10, wM: 8, dM: 8, heightM: 6, use: 'home', jitter: 0.1, style: 'low' },
+    { id: 1, x: 90, z: -40, wM: 8, dM: 8, heightM: 6, use: 'home', jitter: 0.2, style: 'low' },
+  ];
+
+  it('says at once that there are none, rather than sweeping the grid', () => {
+    const index = buildLotIndex(lots);
+    const started = performance.now();
+    for (let i = 0; i < 2000; i++) expect(index.nearest('market', i, -i)).toBe(-1);
+    // The unbounded version ran 193 rings and 9.6 million iterations for every
+    // one of these, which is minutes. Anything near instant proves the guard.
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
+  it('still finds a use that does exist', () => {
+    const index = buildLotIndex(lots);
+    expect(index.nearest('home', 12, 12)).toBe(0);
+    expect(index.nearest('home', 88, -38)).toBe(1);
+  });
+
+  it('finds the nearest from far outside the town', () => {
+    const index = buildLotIndex(lots);
+    expect(index.nearest('home', 5000, 5000)).toBe(1);
+    expect(index.nearest('home', -5000, 5000)).toBe(0);
+  });
+
+  it('copes with no lots at all', () => {
+    const index = buildLotIndex([]);
+    expect(index.nearest('home', 0, 0)).toBe(-1);
+  });
+});

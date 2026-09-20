@@ -25,12 +25,14 @@ async function main(): Promise<void> {
     startAltitudeM: settings.startAltitudeM ?? undefined,
     startTarget: settings.startTarget ?? undefined,
     panLimitM: TERRAIN.cityRadiusM,
+    reducedMotion: settings.reducedMotion,
   });
   const world = createWorld({
     seed: settings.seed,
     startHour: settings.startHour,
     startEra: settings.startEra,
     paused: settings.paused,
+    reducedMotion: settings.reducedMotion,
     camera: rig.camera,
     canvas: container,
   });

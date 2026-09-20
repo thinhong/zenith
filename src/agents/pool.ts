@@ -28,8 +28,17 @@ export const POOL = {
   maxPeople: 14000,
   maxVehicles: 800,
   maxWaypoints: PATHS.maxWaypoints,
-  /** How many people share one home lot, at most. */
-  perHomeLot: 14,
+  /**
+   * How many people may share one home lot. A ceiling, not a quota: homes are
+   * drawn at random, so most hold far fewer and a few hold more.
+   *
+   * It is generous because it has to grant the same population to every era,
+   * and 2300 is built high on few plots: 590 home lots at 14 apiece capped it
+   * at 8,260 when it had asked for 13,000. The cost of the headroom is that a
+   * small 1800 house can end up holding a dozen people, which is crowded but
+   * not wrong for the century.
+   */
+  perHomeLot: 24,
   walkSpeedMS: { min: 1.2, max: 1.6 },
   /** Distance from the road centreline that people walk at, in metres. */
   pavementM: { min: 4.5, max: 6.5 },

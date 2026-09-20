@@ -8,6 +8,12 @@ import {
   isChanging,
   RESEAT_AT,
 } from './era';
+import { POOL } from '@/agents/pool';
+import { availableEras, buildLayout, ERA_POPULATION } from '@/world/eras';
+import { mulberry32 } from '@/world/seed';
+import { buildTerrain } from '@/world/terrain';
+
+const BUILT_ERAS = availableEras();
 
 describe('era changes', () => {
   it('starts settled on one era', () => {
@@ -89,5 +95,46 @@ describe('eraEase', () => {
 
   it('is halfway through when the agents move across', () => {
     expect(eraEase(RESEAT_AT)).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe('every era is as busy as every other', () => {
+  it('asks for the same population', () => {
+    for (const era of BUILT_ERAS) {
+      expect(era.population.people, era.name).toBe(ERA_POPULATION);
+    }
+  });
+
+  it('has the homes to actually hold them', () => {
+    // A wish is not a population. `populate` will not put more people in a
+    // town than homes * perHomeLot, and 2300 is built high on few plots: it
+    // asked for 13,000 and quietly got 8,260 until this was checked.
+    for (const era of BUILT_ERAS) {
+      const layout = buildLayout(era, mulberry32(1), buildTerrain(mulberry32(1)));
+      const homes = layout.lots.filter((lot) => lot.use === 'home').length;
+      expect(homes * POOL.perHomeLot, `${era.name} ceiling`).toBeGreaterThanOrEqual(ERA_POPULATION);
+    }
+  });
+
+  it('keeps the pool big enough for any of them', () => {
+    expect(POOL.maxPeople).toBeGreaterThanOrEqual(ERA_POPULATION);
+  });
+});
+
+describe('a change for a viewer who wants less movement', () => {
+  it('finishes in one frame instead of sinking and rising', () => {
+    const state = createEraState('modern');
+    beginEraChange(state, 'citadel');
+    advanceEraChange(state, 1 / 60, 0);
+    expect(state.progress).toBe(1);
+    expect(isChanging(state)).toBe(false);
+  });
+
+  it('still takes the full three seconds by default', () => {
+    const state = createEraState('modern');
+    beginEraChange(state, 'citadel');
+    advanceEraChange(state, 1 / 60);
+    expect(state.progress).toBeLessThan(0.02);
+    expect(isChanging(state)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceClock, createClock, DAY_LENGTH_S, wrapHour } from './clock';
+import { advanceClock, createClock, DAY_LENGTH_S, localHour, wrapHour } from './clock';
 
 describe('wrapHour', () => {
   it('keeps the hour inside [0, 24)', () => {
@@ -29,5 +29,27 @@ describe('advanceClock', () => {
     clock.paused = true;
     advanceClock(clock, 100);
     expect(clock.hourOfDay).toBe(12);
+  });
+});
+
+describe('localHour', () => {
+  it('reads the hour off the device clock', () => {
+    // 09:30:00 local. Built with the local constructor on purpose: the point
+    // is the viewer's own wall clock, not UTC.
+    expect(localHour(new Date(2026, 8, 20, 9, 30, 0))).toBeCloseTo(9.5, 6);
+  });
+
+  it('carries the minutes and seconds, so dusk arrives gradually', () => {
+    expect(localHour(new Date(2026, 8, 20, 17, 45, 36))).toBeCloseTo(17.76, 2);
+  });
+
+  it('gives midnight as zero, not twenty-four', () => {
+    expect(localHour(new Date(2026, 8, 20, 0, 0, 0))).toBe(0);
+  });
+
+  it('stays inside the day at the last second of it', () => {
+    const hour = localHour(new Date(2026, 8, 20, 23, 59, 59));
+    expect(hour).toBeGreaterThan(23.9);
+    expect(hour).toBeLessThan(24);
   });
 });

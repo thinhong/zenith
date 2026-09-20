@@ -16,11 +16,30 @@
 export const DAY_LENGTH_S = 900;
 
 /**
- * Zenith opens in the last of the light (PLAN.md 2): the sun is still just
- * above the horizon and the first windows are coming on, so the viewer sees the
- * city turn into a city at night rather than arriving after dark.
+ * The hour Zenith opens at when it cannot ask the device: the last of the
+ * light (PLAN.md 2), the sun just above the horizon and the first windows
+ * coming on, so the viewer sees the city turn into a city at night rather
+ * than arriving after dark.
+ *
+ * It is only the fallback now. See `localHour`.
  */
 export const START_HOUR = 17.5;
+
+/**
+ * The viewer's own clock, as an hour with its minutes as a fraction.
+ *
+ * Opening the app should show the time it actually is where the viewer is
+ * sitting: morning light if it is morning for them, and the lamps coming on
+ * if it is evening. The piece is about looking down at a town living out a
+ * day, and starting that day at the viewer's own hour is what ties the two
+ * together. `?hour=` still overrides it, for a reviewer setting up a shot.
+ *
+ * Pure apart from reading the clock, and it is given a value rather than
+ * calling `Date` itself so the callers stay testable.
+ */
+export function localHour(now: Date = new Date()): number {
+  return wrapHour(now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600);
+}
 
 export interface Clock {
   hourOfDay: number;

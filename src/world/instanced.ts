@@ -3,7 +3,6 @@ import {
   DynamicDrawUsage,
   InstancedBufferAttribute,
   InstancedMesh,
-  type Material,
 } from 'three';
 import { attribute, varying } from 'three/tsl';
 import { cloudShadow } from '@/world/atmosphere';

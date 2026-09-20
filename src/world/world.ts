@@ -6,6 +6,8 @@ import {
   HemisphereLight,
   SRGBColorSpace,
   Scene,
+  type Material,
+  type Mesh,
   type PerspectiveCamera,
   type Object3D,
 } from 'three';
@@ -13,7 +15,7 @@ import { createPeople, type People } from '@/agents/people';
 import { createTraffic, type Traffic } from '@/agents/traffic';
 import { ALTITUDE, DETAIL, detailFactor, fogRange } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
-import { advanceClock, createClock, type Clock } from '@/state/clock';
+import { advanceClock, createClock, localHour, type Clock } from '@/state/clock';
 import {
   advanceEraChange,
   beginEraChange,
@@ -87,6 +89,13 @@ export interface World {
 export interface WorldOptions {
   seed: number;
   startHour: number | null;
+  /**
+   * The viewer has asked their system for less movement. The era change cuts
+   * rather than cross-fading, and the clouds stop drifting. It was read from
+   * the OS and then never passed to anything, so asking for reduced motion
+   * changed nothing at all.
+   */
+  reducedMotion?: boolean;
   startEra: EraId | null;
   paused: boolean;
   camera: PerspectiveCamera;
@@ -97,6 +106,35 @@ const SUN_DISTANCE_M = 1400;
 const SHADOW = { mapSize: 4096, extentM: 560, nearM: 200, farM: 3600 } as const;
 
 /** One era's own city: everything that sinks when the dial moves. */
+/**
+ * Lets go of everything in a group: geometries, materials and the GPU buffers
+ * behind them.
+ *
+ * `scene.remove` only detaches. Nothing here used to be disposed at all, so
+ * every era change orphaned a whole city: four building meshes with their
+ * compiled node materials, three road meshes with three more, up to seven
+ * structure meshes, the prop meshes, and the interiors mesh with its four
+ * thousand instance buffers. Dialling back and forth through the eras climbed
+ * without bound against the 300 MB budget in PLAN.md 3.1, and ended by losing
+ * the WebGPU context.
+ *
+ * Materials are collected into a set first because the meshes share them: a
+ * material disposed twice is not an error, but counting them once makes the
+ * cost of a change something that can be reasoned about.
+ */
+function disposeGroup(group: Object3D): void {
+  const materials = new Set<Material>();
+  group.traverse((object) => {
+    const mesh = object as Partial<Mesh>;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const material = mesh.material;
+    if (!material) return;
+    if (Array.isArray(material)) for (const one of material) materials.add(one);
+    else materials.add(material);
+  });
+  for (const material of materials) material.dispose();
+}
+
 interface EraWorld {
   era: Era;
   layout: EraLayout;
@@ -116,6 +154,7 @@ interface EraWorld {
 export function createWorld({
   seed,
   startHour,
+  reducedMotion = false,
   startEra,
   paused,
   camera,
@@ -123,7 +162,8 @@ export function createWorld({
 }: WorldOptions): World {
   const terrain = buildTerrain(mulberry32(seed));
   const eras = availableEras();
-  const clock = createClock(startHour ?? undefined);
+  // The viewer's own hour, unless ?hour= asked for a particular one.
+  const clock = createClock(startHour ?? localHour());
   clock.paused = paused;
 
   const scene = new Scene();
@@ -292,7 +332,14 @@ export function createWorld({
     current.setOpen(opened, toward.x, toward.z);
   }
 
-  let lastView: ViewState = { altitudeM: ALTITUDE.start, targetX: 0, targetZ: 0 };
+  let lastView: ViewState = {
+    altitudeM: ALTITUDE.start,
+    targetX: 0,
+    targetZ: 0,
+    eyeX: 0,
+    eyeY: ALTITUDE.start,
+    eyeZ: 0,
+  };
   let current = buildEraWorld(first);
   let leaving: EraWorld | null = null;
   /** The era being built, one step per frame. Null while nothing is coming. */
@@ -354,8 +401,33 @@ export function createWorld({
    * frames later; until then the bar shows the stop as pending.
    */
   function showEra(id: EraId): void {
-    if (pending?.id === id) return;
-    if (id === era.current && !isChanging(era) && !pending) return;
+    /**
+     * What we will be showing once everything in flight has settled: the era
+     * being built if one is, and otherwise the one on screen. During a
+     * cross-fade `era.current` is already the era being faded in, so this is
+     * the right question in every case.
+     *
+     * Asking for that era again has to do nothing at all. It used to fall
+     * through and queue a rebuild of the era already on screen, and that
+     * wedged the world: `beginEraChange` refuses a change to the era it is
+     * already on, so it returned without starting one, while `advancePending`
+     * had already pushed the visible city into `leaving` and squashed the new
+     * copy to a thousandth of its height. Nothing then restored it. The old
+     * city stayed in the scene forever, never removed; a flat copy of it was
+     * painted over the roads; and because `current` pointed at the invisible
+     * copy, clicking a building stopped opening anything until a different
+     * era was picked. Pressing "2" and then "3" during the eight frames a
+     * build takes was enough, and the bar invites it by lighting the pending
+     * stop rather than the visible one.
+     */
+    const settlingOn = pending?.id ?? era.current;
+    if (id === settlingOn) return;
+    if (id === era.current && !isChanging(era)) {
+      // Asked for the era already on screen while a different one was being
+      // built. That means "never mind": drop the build rather than start one.
+      pending = null;
+      return;
+    }
     const next = eraById(id);
     if (!next) return;
     pending = { id, steps: eraWorldSteps(next) };
@@ -372,6 +444,7 @@ export function createWorld({
     if (leaving) {
       // A second change while one is still running: drop the one already sinking.
       scene.remove(leaving.group);
+      disposeGroup(leaving.group);
       leaving = null;
     }
     leaving = current;
@@ -380,7 +453,18 @@ export function createWorld({
     current.setRoadOpacity(0);
     setEraColours(leaving.era, fromTown, fromLand, fromWater);
     setEraColours(current.era, toTown, toLand, toWater);
-    beginEraChange(era, pending.id);
+    if (!beginEraChange(era, pending.id)) {
+      // No cross-fade to run. `showEra` makes this unreachable, and it is
+      // guarded anyway because the cost of being wrong is a world that never
+      // comes back: put the new city on screen and drop the old one, so the
+      // worst case is a hard cut instead of a blank.
+      current.group.scale.y = 1;
+      current.setRoadOpacity(1);
+      scene.remove(leaving.group);
+      disposeGroup(leaving.group);
+      leaving = null;
+      reseatAgents();
+    }
     pending = null;
   }
 
@@ -396,6 +480,7 @@ export function createWorld({
       startHour: clock.hourOfDay,
     });
     scene.remove(traffic.system.group);
+    disposeGroup(traffic.system.group);
     traffic.system = createTraffic({
       rng: mulberry32(seed + 3),
       graph: current.layout.roads,
@@ -436,11 +521,11 @@ export function createWorld({
       }
       const altitudeM = view.altitudeM;
       advanceClock(clock, dtS);
-      advanceClouds(elapsedS);
+      if (!reducedMotion) advanceClouds(elapsedS);
       advancePending();
 
       if (isChanging(era)) {
-        advanceEraChange(era, dtS);
+        advanceEraChange(era, dtS, reducedMotion ? 0 : undefined);
         const rise = eraEase(era.progress);
         current.group.scale.y = Math.max(0.001, rise);
         current.setRoadOpacity(rise);
@@ -459,6 +544,7 @@ export function createWorld({
         }
         if (!isChanging(era) && leaving) {
           scene.remove(leaving.group);
+          disposeGroup(leaving.group);
           leaving = null;
           current.group.scale.y = 1;
           current.setRoadOpacity(1);

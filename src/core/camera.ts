@@ -9,13 +9,33 @@ export interface CameraRigOptions {
   startTarget?: { x: number; z: number };
   /** How far the viewer may pan the look-at point from the centre, in metres. */
   panLimitM?: number;
+  /**
+   * The viewer has asked their system for less movement. The orbit stops
+   * coasting: it follows the finger or the mouse exactly and stops dead when
+   * they do. Everything else about the camera is unchanged, because the
+   * damping is the only part of it that keeps moving on its own.
+   */
+  reducedMotion?: boolean;
 }
 
 /** What every system reads each frame: how high, and over what. */
 export interface ViewState {
   altitudeM: number;
+  /** The point on the ground the camera is looking at. */
   targetX: number;
   targetZ: number;
+  /**
+   * Where the camera actually is.
+   *
+   * Not the same question as where it is looking, and the difference is the
+   * whole reason this is here. The camera looks down at a slant, so the
+   * target sits well beyond the people filling the bottom of the frame.
+   * Anything that means "near the viewer" has to measure from here; anything
+   * that means "around the middle of the view" measures from the target.
+   */
+  eyeX: number;
+  eyeY: number;
+  eyeZ: number;
 }
 
 export interface CameraRig {
@@ -48,7 +68,7 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
 
   const controls = new OrbitControls(camera, domElement);
   controls.target.set(target.x, 0, target.z);
-  controls.enableDamping = true;
+  controls.enableDamping = !options.reducedMotion;
   controls.dampingFactor = 0.06;
   controls.minDistance = ALTITUDE.min;
   controls.maxDistance = ALTITUDE.max;
@@ -73,7 +93,14 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
     camera,
     controls,
     altitude,
-    view: () => ({ altitudeM: altitude(), targetX: controls.target.x, targetZ: controls.target.z }),
+    view: () => ({
+      altitudeM: altitude(),
+      targetX: controls.target.x,
+      targetZ: controls.target.z,
+      eyeX: camera.position.x,
+      eyeY: camera.position.y,
+      eyeZ: camera.position.z,
+    }),
     update: () => {
       controls.update();
       clampTarget(controls, panLimitM);

@@ -17,10 +17,10 @@ import { range, type Rng } from '@/world/seed';
  * a horizontal or vertical line that tells you how tall a storey is, which is
  * the thing that makes a building read as a building rather than as a shape.
  *
- * All of it is the `trim` kind, which is drawn in its own instanced mesh and
- * switched off above `DETAIL.trim`. A balcony 0.9 m deep is two pixels at the
- * roof band and nothing at all above it, so from up there this is thousands of
- * boxes nobody can see. Putting it in one mesh makes that one `visible` flag.
+ * All of it is the `trim` kind, which is drawn in its own instanced mesh so
+ * that it could one day be faded out with altitude as one piece. It is drawn
+ * at every altitude for now: cutting it changes the average tone of every wall
+ * it is on, and `DETAIL` in state/altitude.ts carries the measurement.
  *
  * Pure: lots in, `Structure[]` out, no three.js (AGENTS.md 3).
  */

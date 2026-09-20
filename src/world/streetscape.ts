@@ -37,9 +37,9 @@ export interface StreetStyle {
    * vehicles off it. The pavement is the largest empty surface in a street
    * view, and a bench on it is what says people come here.
    *
-   * All of it is the `trim` kind, so it goes away above `DETAIL.trimMaxM`
-   * along with the balconies. A 0.5 m bollard is not visible from the roof
-   * band and there are thousands of them.
+   * The furniture is the `trim` kind, along with the balconies. The yard
+   * walls, poles and parked vehicles above it are plain boxes, because they
+   * are large enough to read from the roof band and were here first.
    */
   furniture: {
     /** Share of street edges given a run of furniture. */

@@ -16,8 +16,26 @@ import { selectThoughts, steadyPick, type ThoughtSlot } from '@/thoughts/select'
  */
 const THOUGHTS = {
   max: 6,
-  /** How close to the look-at point a person has to be to be heard. */
-  radiusM: 40,
+  /**
+   * How far from the camera a person may be and still be heard, as a multiple
+   * of the altitude, and never less than `radiusMinM`. It scales because the
+   * higher the camera the more ground is in shot.
+   */
+  radiusPerAltitude: 1.6,
+  radiusMinM: 45,
+  /**
+   * How many people to consider before picking six. Each one is projected to
+   * the screen and scored, and the six best are the ones that speak, so this
+   * has to be a good deal larger than `max` for the scoring to have anything
+   * to choose between.
+   */
+  considered: 30,
+  /**
+   * How much being off to the side counts against a person, against being far
+   * away. At 1.5, somebody at the edge of the frame has to be 2.5 times
+   * closer than somebody in the middle of it to be picked instead.
+   */
+  centreBias: 1.5,
   holdS: 8,
   fadeInS: 0.5,
   /** How far above the head the pill floats, in metres. */
@@ -120,24 +138,64 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
         return;
       }
 
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+
+      /**
+       * Around the camera, not around the point it is looking at.
+       *
+       * These were picked by distance from the look-at target, and the
+       * complaint was that the thoughts belonged to people far off rather
+       * than to the ones filling the view. That is exactly what a tilted
+       * camera does: the target is on the ground well beyond the near
+       * pavement, so a ring drawn around it reaches past the people in front
+       * of the viewer and picks up the ones behind them instead.
+       */
+      const radiusM = Math.max(THOUGHTS.radiusMinM, view.altitudeM * THOUGHTS.radiusPerAltitude);
       const nearby = people.nearby(
-        view.targetX,
-        view.targetZ,
-        THOUGHTS.radiusM,
-        THOUGHTS.max,
+        view.eyeX,
+        view.eyeZ,
+        radiusM,
+        THOUGHTS.considered,
         isOpen,
       );
-      slots = selectThoughts(slots, nearby, elapsedS, {
+
+      // Project every candidate once, drop the ones off screen, and score the
+      // rest by how near the viewer they are and how near the middle of the
+      // frame they land. `selectThoughts` picks the lowest scores, so the
+      // score goes in as the distance it sorts on.
+      const onScreen = new Map<number, { screenX: number; screenY: number }>();
+      const scored: NearbyPerson[] = [];
+      for (const person of nearby) {
+        point.set(person.x, person.headM + THOUGHTS.liftM, person.z);
+        point.project(camera);
+        // project() puts anything behind the camera outside the near plane.
+        if (point.z > 1 || point.x < -1.1 || point.x > 1.1 || point.y < -1.1 || point.y > 1.1) {
+          continue;
+        }
+        const offCentre = Math.hypot(point.x, point.y);
+        const dx = person.x - view.eyeX;
+        const dy = person.headM - view.eyeY;
+        const dz = person.z - view.eyeZ;
+        const fromEyeM = Math.hypot(dx, dy, dz);
+        scored.push({
+          ...person,
+          distanceM: fromEyeM * (1 + offCentre * THOUGHTS.centreBias),
+        });
+        onScreen.set(person.agent, {
+          screenX: (point.x * 0.5 + 0.5) * width,
+          screenY: (1 - (point.y * 0.5 + 0.5)) * height - THOUGHTS.liftPx,
+        });
+      }
+
+      slots = selectThoughts(slots, scored, elapsedS, {
         max: THOUGHTS.max,
         holdS: THOUGHTS.holdS,
         pick,
       });
 
       const byAgent = new Map<number, NearbyPerson>();
-      for (const person of nearby) byAgent.set(person.agent, person);
-
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
+      for (const person of scored) byAgent.set(person.agent, person);
       const limits: PlaceLimits = {
         width,
         height,
@@ -160,18 +218,14 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
           continue;
         }
 
-        point.set(person.x, person.headM + THOUGHTS.liftM, person.z);
-        point.project(camera);
-        // project() puts anything behind the camera outside the near plane.
-        if (point.z > 1 || point.x < -1.1 || point.x > 1.1 || point.y < -1.1 || point.y > 1.1) {
+        // Already projected when the candidates were scored.
+        const where = onScreen.get(slot.agent);
+        if (!where) {
           pill.style.opacity = '0';
           continue;
         }
-
-        // Where the head actually is. The pill may be moved off this; the tail
-        // and the thread are what keep it attached to the person.
-        const headX = (point.x * 0.5 + 0.5) * width;
-        const headY = (1 - (point.y * 0.5 + 0.5)) * height - THOUGHTS.liftPx;
+        const headX = where.screenX;
+        const headY = where.screenY;
         const spot = placePill(headX, headY, placed, limits);
         if (!spot) {
           pill.style.opacity = '0';
