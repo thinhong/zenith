@@ -7,12 +7,14 @@ import {
   type ThoughtPlace,
   type ThoughtSet,
 } from './content';
+import { AFTER_THOUGHTS } from './after-content';
 import { CITADEL_THOUGHTS } from './citadel-content';
 
 // Every era's set has to hold to the same rules, so they are tested together.
 const SETS: ReadonlyArray<[string, ThoughtSet, number]> = [
   ['modern', MODERN_THOUGHTS, 60],
   ['citadel', CITADEL_THOUGHTS, 40],
+  ['after', AFTER_THOUGHTS, 40],
 ];
 const ALL = SETS.flatMap(([, set]) => THOUGHT_PLACES.flatMap((place) => set[place]));
 

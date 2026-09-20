@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v11, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v12, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -142,7 +142,7 @@ src/
       citadel.ts           era 2: walled town, temple, market (~1800) (done)
       colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
       modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default) (done)
-      after.ts             era 5: overgrown ruins, birds, few people (~2300)
+      after.ts             era 5: overgrown ruins, few people (~2300) (done)
   agents/
     pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
     schedule.ts            pure: given clock hour + role -> where an agent wants to be (done)

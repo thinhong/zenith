@@ -4,6 +4,7 @@ import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import type { RoadGraph } from '@/world/roads';
 import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
+import { AFTER_ERA } from '@/world/eras/after';
 import { CITADEL_ERA } from '@/world/eras/citadel';
 import { MODERN_ERA } from '@/world/eras/modern';
 
@@ -140,7 +141,7 @@ export interface Era {
   build: (rng: Rng, terrain: TerrainSpec) => EraBuild;
 }
 
-const BUILT: readonly Era[] = [CITADEL_ERA, MODERN_ERA];
+const BUILT: readonly Era[] = [CITADEL_ERA, MODERN_ERA, AFTER_ERA];
 
 /** The eras that exist today, oldest first. */
 export function availableEras(): readonly Era[] {
