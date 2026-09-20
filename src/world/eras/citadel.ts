@@ -10,6 +10,7 @@ import {
   type LotProfile,
   type LotUse,
 } from '@/world/lots';
+import { LAYER_Y } from '@/world/ground';
 import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
@@ -62,6 +63,12 @@ const TILE = {
 } as const;
 const WALL = { violet: 0x9b87bc, shade: 0x7d6e9c } as const;
 const STONE = 0xdcd6bf;
+/**
+ * The moat, which is not the sea. Standing water under a wall is darker and
+ * greener than open water, and using the era's `water` for both made a bright
+ * cyan ribbon that shouted louder than the citadel it surrounds.
+ */
+const MOAT = 0x3f5e63;
 
 const PALETTE: EraPalette = {
   townGround: 0x8a8a5c,
@@ -362,9 +369,12 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   // Moat, then wall, then gates, outermost first.
   const moatMid = CITADEL.wallHalfM + CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM / 2 + 4;
   const moatSpan = moatMid * 2 + CITADEL.moatWidthM;
+  // Above the road layer, not below it. At 0.22 the lanes running along the
+  // outside of the wall were drawn over the top and cut the moat into a dashed
+  // line, which read as a row of blue tiles rather than as water.
   for (const side of [-1, 1]) {
-    structures.push(flat(0, side * moatMid, moatSpan, CITADEL.moatWidthM, PALETTE.water, 0.22));
-    structures.push(flat(side * moatMid, 0, CITADEL.moatWidthM, moatSpan, PALETTE.water, 0.22));
+    structures.push(flat(0, side * moatMid, moatSpan, CITADEL.moatWidthM, MOAT, LAYER_Y.road + 0.05));
+    structures.push(flat(side * moatMid, 0, CITADEL.moatWidthM, moatSpan, MOAT, LAYER_Y.road + 0.05));
   }
 
   structures.push(

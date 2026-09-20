@@ -13,7 +13,12 @@ export async function createRenderer(
 ): Promise<{ renderer: WebGPURenderer; backend: Backend }> {
   const renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' });
   await renderer.init();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // A phone reports a device pixel ratio of 3, and with the post-processing
+  // chain on top that is nine times the fragment work of drawing at 1. The
+  // difference between 1.5 and 2 is not visible at arm's length; the
+  // difference in frame rate is.
+  const narrow = Math.min(window.innerWidth, window.innerHeight) < 760;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, narrow ? 1.5 : 2));
   // three resets these counters inside its own animation loop, which runs
   // before ours and would always hand the HUD zeroes. core/loop.ts drives the
   // frame here, so reset them there instead.

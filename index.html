@@ -29,8 +29,9 @@
       /* The bar keeps out of the way: no score, no badges, and it fades. */
       #bar {
         position: fixed; left: 0; right: 0; bottom: 0;
-        display: flex; align-items: flex-end; justify-content: center; gap: 10px;
-        padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
+        display: flex; align-items: flex-end; justify-content: center;
+        flex-wrap: wrap-reverse; gap: 8px;
+        padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px));
         transition: opacity 0.6s ease;
       }
       #bar.away { opacity: 0; pointer-events: none; }
@@ -117,6 +118,42 @@
         font-size: 12px; line-height: 1.7;
       }
       #helpsheet.hidden { display: none; }
+
+      /*
+       * Touch targets. Keyed on the pointer, not on the width: a phone held
+       * sideways is 844 px across and still has a finger on it, and a width
+       * rule misses that entirely. The slider is the case that matters, since
+       * its track is three pixels tall and a finger cannot land on that; the
+       * padding grows the hit area without moving the line.
+       */
+      @media (pointer: coarse) {
+        .icon { width: 40px; height: 40px; border-radius: 20px; }
+        .hours { height: 40px; padding: 18px 0; background-clip: content-box; }
+        .hours::-webkit-slider-thumb { width: 18px; height: 18px; }
+        .hours::-moz-range-thumb { width: 18px; height: 18px; }
+        .clock { height: 48px; }
+        #xray, #closeall, #help { width: 44px; height: 44px; border-radius: 22px; }
+        .stop { min-height: 44px; }
+      }
+
+      /*
+       * A narrow screen. The bar is five era stops, a slider and two buttons,
+       * which is about five hundred pixels laid out in a line and will not fit
+       * across a 375 px phone. It wraps instead.
+       */
+      @media (max-width: 640px) {
+        #bar { gap: 6px; }
+        .stop { min-width: 44px; padding: 4px 5px; font-size: 10px; }
+        .stop .name { font-size: 9px; }
+        .clock { padding: 4px 8px; gap: 6px; }
+        .hours { width: 96px; }
+        #hud { font-size: 10px; }
+        #helpsheet { right: 10px; bottom: 120px; font-size: 11px; }
+      }
+      @media (max-width: 400px) {
+        .stop { min-width: 38px; }
+        .hours { width: 78px; }
+      }
     </style>
   </head>
   <body>

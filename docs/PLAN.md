@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v12, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v13, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -77,6 +77,15 @@ Where the triangles used to go, and it was not buildings: **trees were 55 to 65 
 - Time to first rendered frame: under 3 seconds on a 4G connection.
 - Memory: under 300 MB in the browser task manager.
 - Simulation: at most 4 ms of CPU per frame for agent updates. Use typed arrays and time-slicing (update far agents less often), never one JavaScript object per agent per frame.
+
+### 3.1.1 Phone
+
+- **Touch follows a map, not a model viewer.** One finger moves over the town, two fingers pinch to rise and fall and twist to turn. three's default is the other way round, with one finger rotating, which on a phone means you cannot go anywhere without spinning the world. The mouse keeps the usual arrangement: drag turns, right-drag moves.
+- **Touch targets are sized on `pointer: coarse`, not on width.** A phone held sideways is 844 px across and still has a finger on it. The hour slider is the case that matters: its track is three pixels tall, so the padding grows the hit area without moving the line.
+- **The bar wraps.** Five era stops, a slider and two buttons is about 500 px in a line and will not fit across a 375 px phone.
+- **A tap is not a drag.** The slop that separates one from the other is 14 px for touch and 5 for a pointer, because a finger never holds as still as a mouse.
+- **Pixel ratio is capped at 1.5 on a small screen.** A phone reports 3, and with the post-processing chain that is nine times the fragment work of drawing at 1. The difference between 1.5 and 2 is not visible at arm's length; the difference in frame rate is.
+- **Still not checked on a real phone.** Everything above is measured in a headless browser at phone viewports with touch emulation, which proves the layout and the hit areas and proves nothing at all about how it feels or how fast it runs. That remains the one open acceptance item, as it has been since M1.
 
 ### 3.2 Browser support
 

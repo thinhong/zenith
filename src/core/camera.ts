@@ -1,4 +1,5 @@
 import { PerspectiveCamera } from 'three';
+import { MOUSE, TOUCH } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ALTITUDE } from '@/state/altitude';
 
@@ -55,6 +56,16 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
   controls.maxPolarAngle = Math.PI * 0.42; // never below the horizon
   controls.zoomSpeed = 0.6;
   controls.screenSpacePanning = false;
+  /**
+   * Touch: one finger moves over the town, two fingers pinch to rise and fall
+   * and twist to turn. That is what every map does, and it is what a hand
+   * expects here, where the view is from above and moving is the common thing.
+   * three's default is the opposite way round, with one finger turning, which
+   * on a phone means you cannot go anywhere without rotating the world.
+   */
+  controls.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE };
+  // The mouse keeps the usual arrangement: drag turns, right-drag moves.
+  controls.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
 
   const altitude = (): number => Math.max(0, camera.position.y - controls.target.y);
 

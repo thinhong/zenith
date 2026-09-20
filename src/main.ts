@@ -74,7 +74,10 @@ async function main(): Promise<void> {
     const from = downAt;
     downAt = null;
     // A drag is how the camera is moved, so only a click opens anything.
-    if (!from || Math.hypot(e.clientX - from.x, e.clientY - from.y) > 5) return;
+    // A finger never holds as still as a mouse, so the slop that separates a
+    // tap from a drag has to be wider for touch than for a pointer.
+    const slop = e.pointerType === 'touch' ? 14 : 5;
+    if (!from || Math.hypot(e.clientX - from.x, e.clientY - from.y) > slop) return;
     if (e.button !== 0) return;
 
     const rect = renderer.domElement.getBoundingClientRect();
