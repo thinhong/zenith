@@ -1,4 +1,13 @@
-import { BoxGeometry, ConeGeometry, Group, InstancedMesh, PlaneGeometry } from 'three';
+import {
+  BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  ConeGeometry,
+  CylinderGeometry,
+  Group,
+  InstancedMesh,
+  PlaneGeometry,
+} from 'three';
 import type { Structure, StructureKind } from '@/world/eras';
 import {
   attachInstanceColors,
@@ -17,7 +26,7 @@ import {
 export function createStructures(structures: readonly Structure[]): Group {
   const group = new Group();
   group.name = 'structures';
-  for (const kind of ['flat', 'box', 'roof'] as const) {
+  for (const kind of ['flat', 'box', 'roof', 'gable', 'tank'] as const) {
     const mine = structures.filter((structure) => structure.kind === kind);
     if (mine.length === 0) continue;
     group.add(meshFor(kind, mine));
@@ -26,7 +35,7 @@ export function createStructures(structures: readonly Structure[]): Group {
 }
 
 function meshFor(kind: StructureKind, structures: readonly Structure[]): InstancedMesh {
-  const mesh = new InstancedMesh(geometryFor(kind), createInstanceColorMaterial(), structures.length);
+  const mesh = new InstancedMesh(geometryFor(kind), createInstanceColorMaterial(true), structures.length);
   mesh.name = `structures-${kind}`;
   mesh.frustumCulled = false;
 
@@ -56,7 +65,7 @@ function meshFor(kind: StructureKind, structures: readonly Structure[]): Instanc
   return mesh;
 }
 
-function geometryFor(kind: StructureKind): BoxGeometry | ConeGeometry | PlaneGeometry {
+function geometryFor(kind: StructureKind): BufferGeometry {
   if (kind === 'box') {
     const box = new BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0); // base on the ground, so scaling in y grows upward
@@ -70,7 +79,51 @@ function geometryFor(kind: StructureKind): BoxGeometry | ConeGeometry | PlaneGeo
     cone.translate(0, 0.5, 0);
     return cone;
   }
+  if (kind === 'gable') return gableGeometry();
+  if (kind === 'tank') {
+    // Six sides is enough at this size and keeps the faceted look.
+    const tank = new CylinderGeometry(0.5, 0.5, 1, 6);
+    tank.translate(0, 0.5, 0);
+    return tank;
+  }
   const plane = new PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2);
   return plane;
+}
+
+/**
+ * A ridged roof: a unit box footprint with the ridge running along local x and
+ * the apex at y = 1. Eight triangles, written out rather than indexed so each
+ * face keeps its own normal and the two slopes catch the sun differently,
+ * which is what makes a row of houses read as houses from above.
+ */
+function gableGeometry(): BufferGeometry {
+  const a = [-0.5, 0, -0.5];
+  const b = [0.5, 0, -0.5];
+  const c = [0.5, 0, 0.5];
+  const d = [-0.5, 0, 0.5];
+  const e = [-0.5, 1, 0];
+  const f = [0.5, 1, 0];
+  const faces = [
+    // The two slopes.
+    a, e, f, a, f, b,
+    c, f, e, c, e, d,
+    // The two gable ends.
+    a, d, e,
+    b, f, c,
+    // The underside, which is only seen from below the eaves.
+    a, b, c, a, c, d,
+  ];
+  const positions = new Float32Array(faces.length * 3);
+  for (let i = 0; i < faces.length; i++) {
+    const p = faces[i];
+    if (!p) continue;
+    positions[i * 3] = p[0] ?? 0;
+    positions[i * 3 + 1] = p[1] ?? 0;
+    positions[i * 3 + 2] = p[2] ?? 0;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
 }

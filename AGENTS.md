@@ -109,3 +109,25 @@ Start with M2 in `docs/PLAN.md`.
 - Do not copy a placement list to change one field on it. `props.ts` used to map
   its trees twice, once for trunks and once for canopies, which cost 37 ms for
   4400 trees; passing three size functions over the one list costs 9.
+- A procedural pattern on a surface needs a fade by altitude, not just by band.
+  The daytime window pattern is a 3.6 m floor: at 300 m it reads as glazing, at
+  620 m it is one pixel and turns into black moire across every wall.
+  `DETAIL.facade` exists for that, separate from `DETAIL.windows`, which is
+  about the lights at satellite height.
+- Check the range of an instance attribute before doing arithmetic on it.
+  `iSeed` is the lot's jitter times a hundred, so using it as a 0..1 weight
+  multiplied the window pattern by up to ninety and every wall came out solid
+  black. `fract(seed * 0.01)` folds it back.
+- A sine repeats every 2*PI, so dividing a world position by a "size in metres"
+  gives a pattern 2*PI times larger than the name says. The cloud shadows were
+  ten kilometres wide for this reason, which is wider than any frame, so the
+  whole world simply sat under an even wash and the feature looked broken
+  rather than wrong.
+- An InstancedMesh with no instances has no bounding sphere, and three reports
+  that as a NaN radius when the shadow pass culls it. Do not add a mesh whose
+  list is empty.
+- The lighting sets whether a palette can work at all. Before you repaint
+  anything, check that a lit flat surface renders at about its own colour:
+  irradiance on a top face is `ambI * ambLinear + sunI * sunLinear * dot(n, s)`
+  and Lambert divides by PI, so those two terms have to sum to about PI. They
+  summed to 1.6 here, and every palette looked like mud until that was fixed.

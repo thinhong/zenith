@@ -24,6 +24,7 @@ import {
   vec3,
 } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { cloudShadow } from '@/world/atmosphere';
 import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 
 /**
@@ -36,6 +37,8 @@ import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 const WINDOW = {
   rowM: 3.6,
   colM: 4.2,
+  /** How much darker a pane is than its wall in daylight. */
+  dayShade: 0.22,
   /** No windows in the ground floor or right under the roof. */
   skirtM: 2,
   parapetM: 1.2,
@@ -49,6 +52,8 @@ export interface Buildings {
   setNight: (night: number) => void;
   /** 1 close in, 0 from satellite height: the city goes flat colour. */
   setDetail: (detail: number) => void;
+  /** Fades the daytime window pattern, which aliases long before the lights do. */
+  setFacade: (facade: number) => void;
   count: number;
 }
 
@@ -91,7 +96,13 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
     : [];
   if (capped.length > 0) group.add(roofMesh(capped, options.roof));
 
-  return { group, setNight: windows.setNight, setDetail: windows.setDetail, count };
+  return {
+    group,
+    setNight: windows.setNight,
+    setDetail: windows.setDetail,
+    setFacade: windows.setFacade,
+    count,
+  };
 }
 
 function buildingMesh(
@@ -178,8 +189,9 @@ function roofMesh(lots: readonly Lot[], colour: number): InstancedMesh {
 function createWindowMaterial(litShare: number, glowStrength: number) {
   const night = uniform(0);
   const detail = uniform(1);
+  const facade = uniform(1);
 
-  const instanceColor = attribute('iColor', 'vec3');
+  const instanceColor = varying(attribute('iColor', 'vec3'));
   // Instance attributes are read in the vertex stage, so they have to be
   // interpolated explicitly before the fragment stage can use them. Without
   // this the whole pattern is evaluated per vertex and smears across each face.
@@ -196,8 +208,8 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
   const col = acrossM.div(WINDOW.colM);
   const withinRow = fract(row);
   const withinCol = fract(col);
-  const paneY = step(0.16, withinRow).mul(float(1).sub(step(0.9, withinRow)));
-  const paneX = step(0.1, withinCol).mul(float(1).sub(step(0.9, withinCol)));
+  const paneY = step(0.22, withinRow).mul(float(1).sub(step(0.86, withinRow)));
+  const paneX = step(0.14, withinCol).mul(float(1).sub(step(0.88, withinCol)));
 
   // Cheap per-window randomness, so some windows stay dark all night. The usual
   // fract(sin(dot(...)) * 43758) hash speckles once world coordinates get this
@@ -211,6 +223,25 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
   const aboveStreet = step(WINDOW.skirtM, heightM);
   const belowParapet = step(heightM, buildingSize.y.sub(WINDOW.parapetM));
 
+  // The same panes, dark, during the day. A blank wall is what makes a
+  // rendered building read as a block: real glass is darker than the wall
+  // around it at every hour, and from six hundred metres a floor is about two
+  // pixels, which is exactly the texture an aerial photograph has. It fades
+  // out with `detail`, so it never turns into moire from satellite height.
+  const pane = paneY
+    .mul(paneX)
+    .mul(float(1).sub(step(0.5, abs(normalWorld.y))))
+    .mul(step(WINDOW.skirtM, heightM))
+    .mul(step(heightM, buildingSize.y.sub(WINDOW.parapetM)));
+  // Vary the strength per building, or a street of towers reads as one
+  // repeated texture, which is the giveaway in a rendered city. `iSeed` is the
+  // lot's jitter times a hundred, so it is folded back into 0..1 first: taken
+  // raw it multiplied the pattern by up to ninety and every wall came out
+  // solid black.
+  const seed01 = fract(buildingSeed.mul(0.01));
+  const paneStrength = float(WINDOW.dayShade).mul(seed01.mul(0.7).add(0.65));
+  const shaded = float(1).sub(pane.mul(paneStrength).mul(facade).mul(float(1).sub(night)));
+
   const glow = vec3(1.0, 0.82, 0.48)
     .mul(paneY)
     .mul(paneX)
@@ -223,7 +254,7 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
     .mul(glowStrength);
 
   const material = new MeshLambertNodeMaterial();
-  material.colorNode = instanceColor;
+  material.colorNode = instanceColor.mul(shaded).mul(cloudShadow());
   // three declares emissiveNode only on MeshStandardNodeMaterial, but
   // NodeMaterial.setupLighting() reads it on every node material.
   (material as MeshLambertNodeMaterial & { emissiveNode: unknown }).emissiveNode = glow;
@@ -232,6 +263,9 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
     material,
     setNight: (value: number): void => {
       night.value = value;
+    },
+    setFacade: (value: number): void => {
+      facade.value = value;
     },
     setDetail: (value: number): void => {
       detail.value = value;

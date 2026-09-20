@@ -1,5 +1,6 @@
 import { Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh } from 'three';
 import { attribute, varying } from 'three/tsl';
+import { cloudShadow } from '@/world/atmosphere';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 
 /**
@@ -8,10 +9,16 @@ import { MeshLambertNodeMaterial } from 'three/webgpu';
  * matrices are rewritten every frame, so the writer below matters.
  */
 
-/** Flat per-instance colour, the same attribute trick world/buildings.ts uses. */
-export function createInstanceColorMaterial(): MeshLambertNodeMaterial {
+/**
+ * Flat per-instance colour, the same attribute trick world/buildings.ts uses.
+ *
+ * `clouds` is off for anything small enough that a cloud shadow would only
+ * flicker across it, which is people and vehicles. A wall or a roof takes it.
+ */
+export function createInstanceColorMaterial(clouds = false): MeshLambertNodeMaterial {
   const material = new MeshLambertNodeMaterial();
-  material.colorNode = varying(attribute('iColor', 'vec3'));
+  const colour = varying(attribute('iColor', 'vec3'));
+  material.colorNode = clouds ? colour.mul(cloudShadow()) : colour;
   return material;
 }
 

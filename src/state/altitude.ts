@@ -43,6 +43,14 @@ export interface Fade {
 export const DETAIL = {
   /** Window lights. Above this the city is flat colour (PLAN.md M1 task 7). */
   windows: { offM: 3800, onM: 3200 },
+  /**
+   * The daytime window pattern, which is a different question from the lights.
+   * A floor is 3.6 m, so above about 400 m it is roughly one pixel tall and a
+   * hard pattern sampled at that rate turns into black moire across every
+   * shaded wall. An aerial photograph shows facades as flat tone from there
+   * anyway, so it fades out well before it can alias.
+   */
+  facade: { offM: 520, onM: 240 },
   /** Trees and street lamps. */
   props: { offM: 3800, onM: 3100 },
   /**
@@ -51,7 +59,7 @@ export const DETAIL = {
    */
   thoughts: { offM: 66, onM: 44 },
   /** The sun only casts shadows below this (PLAN.md 5, "Light"). */
-  shadowMaxM: 300,
+  shadowMaxM: 800,
   /** Hysteresis around `shadowMaxM` so scrubbing the boundary does not thrash. */
   shadowHysteresisM: 40,
 } as const;
@@ -68,10 +76,10 @@ export function detailFactor(fade: Fade, altitudeM: number): number {
  * land dissolves before its rim is reached.
  */
 export const FOG = {
-  nearScale: 1.15,
-  nearOffsetM: 500,
-  farScale: 1.15,
-  farOffsetM: 3600,
+  nearScale: 1.05,
+  nearOffsetM: 350,
+  farScale: 1.5,
+  farOffsetM: 2600,
 } as const;
 
 export function fogRange(altitudeM: number): { nearM: number; farM: number } {

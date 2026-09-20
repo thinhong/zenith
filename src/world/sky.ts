@@ -46,20 +46,40 @@ interface SkyKey {
 }
 
 /**
- * Keyframes through one day. Low saturation, slightly warm (PLAN.md 5). The
- * last key repeats the first at hour 24 so interpolation never has to wrap.
+ * Keyframes through one day (PLAN.md 5). The last key repeats the first at
+ * hour 24 so interpolation never has to wrap.
+ *
+ * These are daylight as a camera records it. Real midday light is close to
+ * white with a faint blue cast, the haze is a pale grey-blue rather than a
+ * white-out, and the sky a town sits under is far less saturated than the sky
+ * a poster shows. The saturated version of this table read as a toy.
+ *
+ * The intensities follow one rule: **at midday a flat surface facing the sky
+ * renders at about its own colour.** With a Lambert material the light a top
+ * face receives is `ambI * ambLinear + sunI * sunLinear * dot(n, sun)`, and
+ * the surface shows `that / PI * albedo`, so the two intensities are chosen to
+ * sum to about PI at noon with the sun three quarters of the way up. Before
+ * this they summed to about 1.6, which is why every render came back at half
+ * the value of the palette and read as mud. If you change a light colour here,
+ * re-check the sum; if you want the world brighter, paint the palette, do not
+ * push the lights past the rule.
+ *
+ * The split is about 55 percent sky and 45 percent sun. A painted background
+ * keeps a shadow at roughly half the value of the light, never at black, and
+ * the sun's share is what sets that ratio: at 70 percent the shaded side of a
+ * tower came back almost black. Push it the other way and the roofs flatten.
  */
 const KEYS: readonly SkyKey[] = [
-  { hour: 0.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.16, amb: 0x47567a, bounce: 0x3a2e26, ambI: 0.85 },
-  { hour: 4.5, sky: 0x0a1120, fog: 0x14203a, sun: 0x8fa8cc, sunI: 0.18, amb: 0x4a5a80, bounce: 0x3a2e26, ambI: 0.87 },
-  { hour: 6.5, sky: 0x44557a, fog: 0xc98a68, sun: 0xffc08c, sunI: 0.6, amb: 0x7b8da8, bounce: 0x4a4436, ambI: 0.9 },
-  { hour: 9.0, sky: 0x6d94c8, fog: 0xa8bdd6, sun: 0xfff0d6, sunI: 1.2, amb: 0xa8bdd4, bounce: 0x63614f, ambI: 1.0 },
-  { hour: 12.0, sky: 0x7fa8d8, fog: 0xbccfe4, sun: 0xfff6e2, sunI: 1.35, amb: 0xb0c2d6, bounce: 0x6b6a58, ambI: 1.05 },
-  { hour: 15.5, sky: 0x76a0d0, fog: 0xc3ccd8, sun: 0xfff0d0, sunI: 1.2, amb: 0xacbed2, bounce: 0x676554, ambI: 1.0 },
-  { hour: 18.0, sky: 0x4a5678, fog: 0xd9936a, sun: 0xff9f60, sunI: 0.85, amb: 0x93a0bb, bounce: 0x64503f, ambI: 0.95 },
-  { hour: 19.5, sky: 0x1e2a44, fog: 0x6e4a52, sun: 0xc06a58, sunI: 0.32, amb: 0x64739a, bounce: 0x43332e, ambI: 0.95 },
-  { hour: 21.0, sky: 0x090e1a, fog: 0x121a2a, sun: 0x8fa8cc, sunI: 0.18, amb: 0x4a5a80, bounce: 0x3b2e26, ambI: 0.86 },
-  { hour: 24.0, sky: 0x060a12, fog: 0x0b1220, sun: 0x8fa8cc, sunI: 0.16, amb: 0x47567a, bounce: 0x3a2e26, ambI: 0.85 },
+  { hour: 0.0, sky: 0x0e1832, fog: 0x1a2b4c, sun: 0xa8c4ec, sunI: 0.5, amb: 0x6a86bc, bounce: 0x4a4668, ambI: 0.95 },
+  { hour: 4.5, sky: 0x1d3058, fog: 0x2f4876, sun: 0xaec8ec, sunI: 0.55, amb: 0x7690c4, bounce: 0x50506e, ambI: 1.05 },
+  { hour: 6.5, sky: 0x96a8c4, fog: 0xe8b79a, sun: 0xffcb9c, sunI: 1.7, amb: 0xb8c8dc, bounce: 0xa88c6e, ambI: 1.8 },
+  { hour: 9.0, sky: 0x9cc0dd, fog: 0xcdd9e2, sun: 0xfff2dc, sunI: 2.0, amb: 0xc2d2e0, bounce: 0xb0a288, ambI: 2.15 },
+  { hour: 12.0, sky: 0x8fb8dc, fog: 0xd6e0e8, sun: 0xfffaee, sunI: 2.05, amb: 0xc8d6e4, bounce: 0xb4a68c, ambI: 2.25 },
+  { hour: 15.5, sky: 0x96bcdc, fog: 0xd8e0e6, sun: 0xfff2d6, sunI: 2.0, amb: 0xc4d4e2, bounce: 0xb2a488, ambI: 2.2 },
+  { hour: 18.0, sky: 0x8a96b4, fog: 0xe3a884, sun: 0xffb37c, sunI: 1.85, amb: 0xb4c2d8, bounce: 0xa88866, ambI: 1.85 },
+  { hour: 19.5, sky: 0x435270, fog: 0x8a6672, sun: 0xc5806f, sunI: 0.95, amb: 0x8492b2, bounce: 0x625060, ambI: 1.25 },
+  { hour: 21.0, sky: 0x10203e, fog: 0x1e3052, sun: 0xa8c4ec, sunI: 0.52, amb: 0x6e88be, bounce: 0x4c4868, ambI: 0.98 },
+  { hour: 24.0, sky: 0x0e1832, fog: 0x1a2b4c, sun: 0xa8c4ec, sunI: 0.5, amb: 0x6a86bc, bounce: 0x4a4668, ambI: 0.95 },
 ];
 
 export function skyAt(hourOfDay: number): SkyState {

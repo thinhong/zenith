@@ -11,6 +11,7 @@ import {
   type LotUse,
 } from '@/world/lots';
 import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
+import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
@@ -43,17 +44,25 @@ const CITADEL = {
   laneWidthM: 7,
 } as const;
 
-const TILE = { lit: 0xf6b06a, sun: 0xe28f44, shade: 0xb96a2c, grey: 0x8b8f99 } as const;
-const WALL = { violet: 0x7d65a3, shade: 0x5d4a7c } as const;
-const STONE = 0xcfc7b2;
+const TILE = {
+  lit: 0xd9985c,
+  sun: 0xc4834a,
+  shade: 0xa96c3c,
+  grey: 0x8e939a,
+  dull: 0x9c8468,
+  dark: 0x6f6152,
+} as const;
+const WALL = { violet: 0x8a7e9c, shade: 0x6f6680 } as const;
+const STONE = 0xc9c3ae;
 
 const PALETTE: EraPalette = {
-  land: 0x55643f,
-  water: 0x2b4a5e,
-  road: 0x6e6450,
+  townGround: 0x79794f,
+  land: 0x6d7a49,
+  water: 0x41637a,
+  road: 0x8a7c62,
   roof: TILE.sun,
-  canopy: 0x6f9450,
-  trunk: 0x4a3b2c,
+  canopy: 0x445c33,
+  trunk: 0x584737,
   lampOn: 0xffcf86,
   // Half the compounds have a tree, which is what the reference is full of.
   courtyardChance: 0.55,
@@ -66,16 +75,16 @@ const PALETTE: EraPalette = {
   windowGlow: 0.3,
   building: {
     // The halls and the gate houses: violet walls under orange tile.
-    temple: [WALL.violet, 0x8a72ad, 0x705a93],
+    temple: [WALL.violet, 0x978aa8, 0x7d7290],
     // Offices of the court, plainer but still inside the wall.
-    work: [0x7a6c8e, 0xb9b2a0, 0x8d7f9c],
+    work: [0x8d8397, 0xbeb7a4, 0x9b93a3],
     // The town outside: timber and ochre.
-    home: [0x9a7f63, 0x8b7157, 0xa68a6b, 0x7d6a54],
-    market: [0xa08a6a, 0xb09a78, 0x94805f],
+    home: [0xac9576, 0x9c8568, 0xb8a284, 0x948068],
+    market: [0xb29c7b, 0xbfab89, 0xa69274],
     park: [0x000000],
     water: [0x000000],
   },
-  clothes: [0xd9d2c4, 0xb9ac97, 0x8e7f6d, 0xc4b9a4, 0xa39680, 0xcdc4b2, 0x7d7264],
+  clothes: [0xdcd7c8, 0xc4b9a2, 0xa1927c, 0xcac0ac, 0xb0a48c, 0xd2cabc, 0x8e8474],
 };
 
 const VEHICLES: VehicleProfile = {
@@ -97,6 +106,22 @@ const VEHICLES: VehicleProfile = {
   minorShare: 0.7,
   // A quiet town: a tenth of the traffic of the modern city.
   density: 0.22,
+};
+
+const ROOF_STYLE: RoofStyle = {
+  // A town roof is weathered tile in several states, with some grey slate and
+  // some dark thatch. All orange reads as a theme park.
+  tile: [TILE.sun, TILE.shade, TILE.grey, TILE.dull, TILE.lit, TILE.shade, TILE.grey, TILE.dark],
+  // The halls keep the reference's gold, and never take a town roof.
+  grandTile: [TILE.lit, TILE.sun],
+  deck: [0xa08a6c, 0x92795c, 0xad9878],
+  clutter: [0x9e957f],
+  // Every building, and the halls are all well under the height cut.
+  pitchedShare: 1,
+  pitchedMaxM: 40,
+  wingShare: 0.34,
+  crowns: false,
+  crownTint: [STONE],
 };
 
 const CITADEL_LOTS: LotProfile = {
@@ -345,29 +370,9 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
 
   yield;
 
-  // Every building gets a tiled roof, wide enough to overhang its walls.
-  for (const lot of all) {
-    if (lot.heightM <= 0) continue;
-    const grand = lot.use === 'temple';
-    const tile = grand
-      ? TILE.sun
-      : lot.jitter < 0.18
-        ? TILE.grey
-        : lot.jitter < 0.55
-          ? TILE.lit
-          : TILE.sun;
-    structures.push(
-      roof(
-        lot.x,
-        lot.heightM,
-        lot.z,
-        lot.wM * (grand ? 1.34 : 1.24),
-        Math.min(lot.wM, lot.dM) * (grand ? 0.44 : 0.36),
-        lot.dM * (grand ? 1.34 : 1.24),
-        tile,
-      ),
-    );
-  }
+  // Every building gets a ridged tile roof with the eaves hanging past the
+  // walls. Nothing in 1800 has a flat deck, a water tank or a crown.
+  structures.push(...buildRoofscape(rng, all, ROOF_STYLE));
 
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }

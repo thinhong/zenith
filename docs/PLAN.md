@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v5, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v6, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -232,9 +232,19 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 
 - **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 12 m wide (modern), 6 m (colonial), 3 m dirt paths (fields). The road grid has a 100 m pitch, so blocks are about 82 m across. The city fills a disc of radius 1400 m, ringed by low mountains from 1550 m to 2400 m. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
 - **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
-- **Colours.** Flat `MeshLambertMaterial` or node equivalents, 3 to 5 building colours per era, low saturation, slightly warm. Night: dark blue-grey ground, warm yellow windows (emissive). The single accent colour is the soul light (pale gold). Store each era's palette in its era file.
-- **Light.** One directional sun plus a hemisphere or ambient light. Shadows only for the sun, only in roof and street bands, low resolution (1024). Turn shadows off above 300 m.
-- **Fog.** Always on. Fog colour equals sky horizon colour so the world dissolves at the edge instead of ending.
+- **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is an aerial photograph, not a painting** (owner's decision, 20 Sep 2026, replacing "low saturation, slightly warm"). Two rules, and they pull against each other:
+  - Nothing sits below about `0x60`. A shaded side keeps roughly 45 percent of its value, so anything darker than that goes to mud, which is what the first version of every palette did.
+  - Very little is saturated. A city from six hundred metres is grey, beige and dark green; colour appears in terracotta roofs, a painted wall and rust. Separation between uses is carried by value and by hue that is barely there.
+
+  Night: dark blue-grey ground, warm yellow windows (emissive), and each era sets how many windows are lit and how brightly, because a town on oil lamps must not show the 2020 grid of white panes. The single accent colour is the soul light (pale gold). Store each era's palette in its era file.
+- **Exposure.** The sky keyframes obey one rule: **at midday a flat surface facing the sky renders at about its own colour.** With a Lambert material a top face receives `ambI * ambLinear + sunI * sunLinear * dot(n, sun)` and shows `that / PI * albedo`, so the two intensities sum to about PI at noon. Before this rule they summed to 1.6 and every render came back at half the value of the palette. If you want the world brighter, paint the palette; do not push the lights past the rule. The split is about 55 percent sky and 45 percent sun: more sun and a shaded wall goes black, more sky and the roofs flatten. Tone mapping is Khronos PBR Neutral at 1.08 exposure, which rolls the top off without draining a bright roof the way ACES does.
+- **Light.** One directional sun plus a hemisphere light. Shadows only for the sun, 2048 map over a 520 m square. They run to 800 m, not 300: below that a cast shadow is most of what gives a city its shape, and without them the buildings float.
+- **Surface.** Three patterns do the work that geometry cannot:
+  - **Cloud shadows** drift over the whole world (`world/atmosphere.ts`), four sine waves in the fragment stage. Note the conversion: a sine repeats every 2*PI, so `CLOUDS.spanM` is turned into a frequency rather than used as a divisor. Getting that wrong made every cloud ten kilometres wide, which is wider than any frame, so the feature looked broken.
+  - **The land takes two colours**, the ground a town stands on and the country beyond it, and mixes between them by distance. What shows between buildings in a real city is yard, path and tarmac; painting the whole disc green was the single largest thing making this look like a model railway. The country half also carries a patchwork of fields.
+  - **Windows are visible by day**, as panes slightly darker than their wall, varied per building. A blank wall is what makes a rendered building read as a block. It fades out by 520 m (`DETAIL.facade`): a floor is 3.6 m, so higher than that it is about one pixel and a hard pattern sampled at that rate turns into black moire.
+- **Roofs.** Nothing is a flat-topped box. `world/roofscape.ts` turns each lot into a ridged roof, or a deck set inside and below its own walls so the wall reads as a parapet, with a stair housing, a water tank and, on the tall ones, an off-centre plant room. Some low buildings grow a wing, so a footprint is not always one rectangle. A city seen from above is mostly roofs; without this it reads as a bar chart.
+- **Fog.** Always on, and it is the aerial perspective as much as the edge of the world. Colour equals the sky horizon so the world dissolves instead of ending; near and far scale with altitude so the far part of any frame reads as distance.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
 - **Where people are visible.** Home and work take a person indoors and they stop being drawn; markets, parks and temples keep them outside, standing or sitting. M2 task 5 said workers should stand in rows at their desks, which cannot be seen through a solid box, so that part was dropped. Clothing is deliberately light: a 1.7 m figure is five to eight pixels from the roof band and the streets are dark, so mid-tones vanish.
 - **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for. Owner's decision, 20 Sep 2026: **the place is Vietnamese, the style and palette are the reference's.** So the layout comes from the Imperial City in Hue (a square citadel on the river, a moat, gates on each side, a walled inner enclosure, long low halls on a central axis, dense housing outside the wall), and the way it is drawn comes from the picture: flat cel shading, no textures, saturated colour, heavy tree canopy between the walls.
@@ -254,7 +264,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   | Minor roofs, grey tile | `#8b8f99` | derived |
   | Timber and doors | `#8e3b2e` | derived |
 
-  The violet is the thing that makes the picture read, so do not quietly drift it towards brick red for realism. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
+  Since the owner then asked for a realistic look (20 Sep 2026), these sampled values have been pulled down in saturation: the tile runs `#d9985c` to `#a96c3c` with grey slate and dark thatch mixed in, the stone is `#c9c3ae`, and the violet is now `#8a7e9c`, muted towards a weathered stone that still reads as violet. The violet is still the thing that makes the picture read, so it has not been drifted to brick red; if the realism should win outright, that is the next value to change. Build it from the same boxes, cones and prisms as every other era: a hall is a box with a wide flattened pyramid on top, a wall is a long box, a gate tower is a box with two stacked roofs. The look comes from the roof colour against the violet wall, the central axis, and the density of trees, not from imported models.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does.
 
 ## 6. Milestones
@@ -467,6 +477,12 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Nearest-lot and nearest-node searches stop at the ring's inner edge | stopping one ring after the first hit is wrong from outside the city, where the first hit can be fifteen rings out |
 | 2026-09-20 | Tree cover, window lighting and canopy size belong to the era palette | a town on oil lamps was showing the 2020 grid of lit windows, and the citadel needs about 4400 trees to look like the reference |
 | 2026-09-20 | The people pool is allocated for the largest era, not the opening one | entering 2020 from 1800 otherwise gives a city built for 4000 only 2600 people |
+| 2026-09-20 | Look: an aerial photograph, not a painting | owner's call, after first asking for an animated-film look and then for a realistic one. The structural half of that work (roofs, rooftop plant, cast shadows, haze, cloud shadows, daytime windows) serves both; only the palettes changed between the two |
+| 2026-09-20 | Lights are set so a lit flat surface shows its own colour at noon | the previous intensities rendered everything at half the value of the palette, which is why every early screenshot came back muddy whatever the palette said |
+| 2026-09-20 | The land is two colours, town ground and country | ground between buildings in a real city is yard, path and tarmac; one green disc was the largest single thing making this read as a model railway |
+| 2026-09-20 | Every building gets a roof from `world/roofscape.ts` | a city seen from above is mostly roofs, and flat-topped boxes read as a bar chart. Owner's words: "boring boxes without personality" |
+| 2026-09-20 | Shadows run to 800 m, not 300 | below that a cast shadow is most of what gives a city its shape |
+| 2026-09-20 | The daytime window pattern fades out by 520 m | a 3.6 m floor is about one pixel from there and a hard pattern sampled that finely turns into black moire |
 
 ## 10. Open questions (decide before the milestone that needs them)
 
@@ -474,6 +490,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - M4: procedural murmur (cheaper, no files) versus recorded loops (richer)? Start procedural; add files only if it sounds thin.
 - M5: should the era dial be continuous (cross-fade any two neighbours at any ratio) or five discrete stops? Plan says discrete stops with a 3 s transition; continuous is a possible later upgrade.
 - M6: should a soul ever land on a vehicle driver? (No, for now.)
+- **Open bug, low severity.** three warns `BufferGeometry.computeBoundingSphere(): Computed radius is NaN` on some frames, intermittently, at altitudes around 1400 m. Nothing renders wrong. Ruled out so far: every static geometry (ground, water ribbon, structures including the new gable and tank, buildings, roads, props) checked position by position for a non-finite value, and both crowd point clouds driven through 900 frames at four altitudes. Next place to look is a geometry three builds for itself, or a mesh whose instance count reaches zero in a frame.
 
 ## 11. Glossary
 

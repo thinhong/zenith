@@ -33,7 +33,7 @@ export const ERA_LABELS: Readonly<Record<EraId, { name: string; year: number }>>
  * Three kinds cover every era: a box, a wide flattened pyramid for a tiled
  * roof, and a flat quad lying on the ground.
  */
-export type StructureKind = 'box' | 'roof' | 'flat';
+export type StructureKind = 'box' | 'roof' | 'gable' | 'tank' | 'flat';
 
 export interface Structure {
   kind: StructureKind;
@@ -49,6 +49,9 @@ export interface Structure {
 }
 
 export interface EraPalette {
+  /** The ground between buildings: yard, path and tarmac, not grass. */
+  townGround: number;
+  /** The country beyond the built-up part. */
   land: number;
   water: number;
   road: number;

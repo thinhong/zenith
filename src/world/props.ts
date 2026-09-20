@@ -8,8 +8,10 @@ import {
   InstancedMesh,
   Material,
   MeshBasicMaterial,
-  MeshLambertMaterial,
 } from 'three';
+import { uniform } from 'three/tsl';
+import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { cloudShadow } from '@/world/atmosphere';
 import { writeInstanceMatrix } from '@/world/instanced';
 import type { Lot } from '@/world/lots';
 import type { RoadGraph } from '@/world/roads';
@@ -108,53 +110,43 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
   const headGeometry = new BoxGeometry(1, 1, 1);
 
   // Trunks are a third of the tree; the canopy sits on top of them.
-  group.add(
-    instanced(
-      trunkGeometry,
-      lambert(palette.trunk),
-      trees,
-      'tree-trunks',
-      (t) => t.radiusM * 0.12,
-      (t) => t.heightM * 0.38,
-      () => 0,
-    ),
-  );
-  group.add(
-    instanced(
-      canopyGeometry,
-      lambert(palette.canopy, true),
-      trees,
-      'tree-canopies',
-      (t) => t.radiusM,
-      (t) => t.heightM * 0.7,
-      (t) => t.heightM * 0.34,
-    ),
-  );
+  if (trees.length > 0) {
+    group.add(
+      instanced(
+        trunkGeometry,
+        lambert(palette.trunk),
+        trees,
+        'tree-trunks',
+        (t) => t.radiusM * 0.12,
+        (t) => t.heightM * 0.38,
+        () => 0,
+      ),
+    );
+    group.add(
+      instanced(
+        canopyGeometry,
+        lambert(palette.canopy, true),
+        trees,
+        'tree-canopies',
+        (t) => t.radiusM,
+        (t) => t.heightM * 0.7,
+        (t) => t.heightM * 0.34,
+      ),
+    );
+  }
 
   const lamps = placements.lamps;
   const headMaterial = new MeshBasicMaterial({ color: new Color(FIXED.lampOff) });
-  group.add(
-    instanced(
-      postGeometry,
-      lambert(FIXED.post),
-      lamps,
-      'lamp-posts',
-      () => 0.09,
-      () => PROPS.lampHeightM,
-      () => 0,
-    ),
-  );
-  group.add(
-    instanced(
-      headGeometry,
-      headMaterial,
-      lamps,
-      'lamp-heads',
-      () => 0.45,
-      () => 0.35,
-      () => PROPS.lampHeightM,
-    ),
-  );
+  // An instanced mesh with no instances has no bounding sphere, and three
+  // reports that as a NaN radius when the shadow pass comes to cull it.
+  if (lamps.length > 0) {
+    group.add(
+      instanced(postGeometry, lambert(FIXED.post), lamps, 'lamp-posts', () => 0.09, () => PROPS.lampHeightM, () => 0),
+    );
+    group.add(
+      instanced(headGeometry, headMaterial, lamps, 'lamp-heads', () => 0.45, () => 0.35, () => PROPS.lampHeightM),
+    );
+  }
 
   const off = new Color(FIXED.lampOff);
   const on = new Color(palette.lampOn);
@@ -201,8 +193,12 @@ function collectTrees(
     const cols = Math.max(1, Math.floor(lot.wM / PROPS.parkSpacingM));
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const x = lot.x - lot.wM / 2 + ((c + 0.5) * lot.wM) / cols + range(rng, -2.5, 2.5);
-        const z = lot.z - lot.dM / 2 + ((r + 0.5) * lot.dM) / rows + range(rng, -2.5, 2.5);
+        // A quarter of the grid points are left empty and the rest are pushed
+        // well off them, because a park planted on a lattice reads as an
+        // orchard, which is what it looked like.
+        if (rng() < 0.26) continue;
+        const x = lot.x - lot.wM / 2 + ((c + 0.5) * lot.wM) / cols + range(rng, -6, 6);
+        const z = lot.z - lot.dM / 2 + ((r + 0.5) * lot.dM) / rows + range(rng, -6, 6);
         plant(x, z);
       }
     }
@@ -289,8 +285,15 @@ function collectLamps(graph: RoadGraph): Placement[] {
   return lamps;
 }
 
-function lambert(color: number, flatShading = false): MeshLambertMaterial {
-  return new MeshLambertMaterial({ color: new Color(color), flatShading });
+/**
+ * A flat colour under the cloud shadows. A tree is tall enough and a clump wide
+ * enough that leaving them out of the weather shows.
+ */
+function lambert(color: number, flatShading = false): MeshLambertNodeMaterial {
+  const material = new MeshLambertNodeMaterial();
+  material.flatShading = flatShading;
+  material.colorNode = uniform(new Color(color)).mul(cloudShadow());
+  return material;
 }
 
 /**

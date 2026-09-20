@@ -8,10 +8,12 @@ import {
   InstancedMesh,
   Matrix4,
   Mesh,
-  MeshLambertMaterial,
   Quaternion,
   Vector3,
 } from 'three';
+import { mix, uniform } from 'three/tsl';
+import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { cloudShadow, FIELDS, fieldTone, townToCountry } from '@/world/atmosphere';
 import { centrelinePoint, TERRAIN, type MountainSpec, type TerrainSpec } from '@/world/terrain';
 
 /**
@@ -21,8 +23,8 @@ import { centrelinePoint, TERRAIN, type MountainSpec, type TerrainSpec } from '@
 
 /** The mountains ring every era, so their colour does not change with one. */
 export const GROUND_PALETTE = {
-  mountainLow: 0x3b4536,
-  mountainHigh: 0x4a5244,
+  mountainLow: 0x55653f,
+  mountainHigh: 0x6a7752,
 } as const;
 
 /**
@@ -32,48 +34,87 @@ export const GROUND_PALETTE = {
  */
 export const LAYER_Y = { ground: 0, water: 0.3, road: 0.6 } as const;
 
+/** A colour the era can rewrite, read by a material's colour node. */
+function colourUniform(value: number | Color) {
+  return uniform(new Color(value));
+}
+type ColourUniform = ReturnType<typeof colourUniform>;
+
 export interface Ground {
   group: Group;
-  /** The land and the water take their colour from the era, cross-faded on a switch. */
-  setColours: (land: Color, water: Color) => void;
+  /**
+   * The land takes two colours from the era, the ground a town stands on and
+   * the country beyond it, and the water a third. All three cross-fade when
+   * the era changes.
+   */
+  setColours: (town: Color, country: Color, water: Color) => void;
 }
 
-export function createGround(terrain: TerrainSpec, land: number, water: number): Ground {
+export function createGround(
+  terrain: TerrainSpec,
+  town: number,
+  country: number,
+  water: number,
+): Ground {
   const group = new Group();
   group.name = 'ground';
-  const landMesh = createLand(terrain, land);
-  const waterMesh = createWater(terrain, water);
+  // The era writes these; the shaders read them, so a cross-fade is three writes.
+  const townColour = colourUniform(town);
+  const countryColour = colourUniform(country);
+  const waterColour = colourUniform(water);
+  const landMesh = createLand(terrain, townColour, countryColour);
+  const waterMesh = createWater(terrain, waterColour);
   group.add(landMesh, waterMesh);
   for (const mesh of createMountains(terrain.mountains)) group.add(mesh);
 
-  const landMaterial = landMesh.material;
-  const waterMaterial = waterMesh.material;
   return {
     group,
-    setColours: (nextLand, nextWater) => {
-      landMaterial.color.copy(nextLand);
-      waterMaterial.color.copy(nextWater);
+    setColours: (nextTown, nextCountry, nextWater) => {
+      townColour.value.copy(nextTown);
+      countryColour.value.copy(nextCountry);
+      waterColour.value.copy(nextWater);
     },
   };
 }
 
-function createLand(terrain: TerrainSpec, colour: number): Mesh<CircleGeometry, MeshLambertMaterial> {
+/**
+ * The land is most of the picture from any height, so a single flat colour is
+ * most of why the world used to read as felt. It carries two patterns instead:
+ * the patchwork of fields out in the country, and the cloud shadows.
+ *
+ * The disc is 128 segments, which is nowhere near enough vertices to hold a
+ * pattern, so both live in the fragment stage and cost nothing in geometry.
+ */
+function createLand(
+  terrain: TerrainSpec,
+  town: ColourUniform,
+  country: ColourUniform,
+): Mesh<CircleGeometry, MeshLambertNodeMaterial> {
   const geometry = new CircleGeometry(terrain.groundRadiusM, 128);
   geometry.rotateX(-Math.PI / 2);
-  const material = new MeshLambertMaterial({
-    color: new Color(colour),
-    // Push the land a touch further away so the roads drawn on top of it win.
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
-  });
+  const material = new MeshLambertNodeMaterial();
+  // Push the land a touch further away so the roads drawn on top of it win.
+  material.polygonOffset = true;
+  material.polygonOffsetFactor = 1;
+  material.polygonOffsetUnits = 1;
+
+  const base = mix(town, country, townToCountry(terrain.cityRadiusM));
+  const tone = fieldTone(terrain.cityRadiusM);
+  const pale = base.mul(1 + FIELDS.spread);
+  const deep = base.mul(1 - FIELDS.spread);
+  const fields = mix(base, mix(deep, pale, tone.mul(0.5).add(0.5)), tone.abs());
+  material.colorNode = fields.mul(cloudShadow());
+
   const mesh = new Mesh(geometry, material);
   mesh.name = 'land';
   mesh.position.y = LAYER_Y.ground;
   return mesh;
 }
 
-function createWater(terrain: TerrainSpec, colour: number): Mesh<BufferGeometry, MeshLambertMaterial> {
+function createWater(
+  terrain: TerrainSpec,
+  colour: ColourUniform,
+): Mesh<BufferGeometry, MeshLambertNodeMaterial> {
   const water = terrain.water;
   const centre: { x: number; z: number }[] = [];
   for (let i = 0; i < water.offsetsM.length; i++) centre.push(centrelinePoint(water, i));
@@ -103,10 +144,9 @@ function createWater(terrain: TerrainSpec, colour: number): Mesh<BufferGeometry,
     inner.push({ x: p.x + water.nrmX * innerOffset, z: p.z + water.nrmZ * innerOffset });
     outer.push({ x: p.x + water.nrmX * outerOffset, z: p.z + water.nrmZ * outerOffset });
   }
-  const mesh = new Mesh(
-    ribbonGeometry(inner, outer, LAYER_Y.water),
-    new MeshLambertMaterial({ color: new Color(colour) }),
-  );
+  const material = new MeshLambertNodeMaterial();
+  material.colorNode = colour.mul(cloudShadow());
+  const mesh = new Mesh(ribbonGeometry(inner, outer, LAYER_Y.water), material);
   mesh.name = 'water';
   return mesh;
 }
@@ -128,11 +168,10 @@ function mountainMesh(specs: readonly MountainSpec[], color: number, name: strin
   // Seven sides keeps the silhouette faceted, in keeping with the toy world.
   const geometry = new ConeGeometry(1, 1, 7, 1);
   geometry.translate(0, 0.5, 0);
-  const mesh = new InstancedMesh(
-    geometry,
-    new MeshLambertMaterial({ color: new Color(color), flatShading: true }),
-    Math.max(specs.length, 1),
-  );
+  const material = new MeshLambertNodeMaterial();
+  material.flatShading = true;
+  material.colorNode = colourUniform(color).mul(cloudShadow());
+  const mesh = new InstancedMesh(geometry, material, Math.max(specs.length, 1));
   mesh.name = name;
   mesh.count = specs.length;
   const matrix = new Matrix4();

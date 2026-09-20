@@ -1,5 +1,5 @@
 import { WebGPURenderer } from 'three/webgpu';
-import { SRGBColorSpace } from 'three';
+import { NeutralToneMapping, SRGBColorSpace } from 'three';
 
 export type Backend = 'webgpu' | 'webgl2';
 
@@ -19,6 +19,11 @@ export async function createRenderer(
   // frame here, so reset them there instead.
   renderer.info.autoReset = false;
   renderer.outputColorSpace = SRGBColorSpace;
+  // Khronos PBR Neutral. It is close to linear below about 0.8 and rolls the
+  // top off gently, and unlike ACES it does not drain the colour out of a
+  // bright roof, which is the whole look (PLAN.md 5).
+  renderer.toneMapping = NeutralToneMapping;
+  renderer.toneMappingExposure = 1.08;
   // The sun only casts below the roof band; see world/world.ts.
   renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);

@@ -1,4 +1,7 @@
-import { Color, InstancedMesh, Matrix4, MeshLambertMaterial, PlaneGeometry, Quaternion, Vector3 } from 'three';
+import { Color, InstancedMesh, Matrix4, PlaneGeometry, Quaternion, Vector3 } from 'three';
+import { uniform } from 'three/tsl';
+import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { cloudShadow } from '@/world/atmosphere';
 import { LAYER_Y } from '@/world/ground';
 import type { RoadGraph } from '@/world/roads';
 
@@ -6,10 +9,18 @@ import type { RoadGraph } from '@/world/roads';
  * Every road in one InstancedMesh: a flat quad per edge, plus a square at each
  * junction so corners do not show a notch. One draw call for the whole network.
  */
+function roadMaterial(colour: number): MeshLambertNodeMaterial {
+  const material = new MeshLambertNodeMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+  material.colorNode = uniform(new Color(colour)).mul(cloudShadow());
+  return material;
+}
+
 export function createRoadMesh(
   graph: RoadGraph,
   colour: number,
-): InstancedMesh<PlaneGeometry, MeshLambertMaterial> {
+): InstancedMesh<PlaneGeometry, MeshLambertNodeMaterial> {
   const geometry = new PlaneGeometry(1, 1);
   geometry.rotateX(-Math.PI / 2);
 
@@ -17,7 +28,7 @@ export function createRoadMesh(
   const mesh = new InstancedMesh(
     geometry,
     // Transparent so two eras can cross-fade over one another.
-    new MeshLambertMaterial({ color: new Color(colour), transparent: true, depthWrite: false }),
+    roadMaterial(colour),
     Math.max(count, 1),
   );
   mesh.name = 'roads';

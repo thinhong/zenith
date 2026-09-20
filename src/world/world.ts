@@ -44,6 +44,7 @@ import { collectProps, createProps, type Props } from '@/world/props';
 import { createRoadMesh } from '@/world/road-mesh';
 import { mulberry32 } from '@/world/seed';
 import { createStructures } from '@/world/structures';
+import { advanceClouds } from '@/world/atmosphere';
 import { skyAt, type Rgb } from '@/world/sky';
 import { buildTerrain, type TerrainSpec } from '@/world/terrain';
 import { createThoughts, type Thoughts } from '@/thoughts/thoughts';
@@ -81,7 +82,7 @@ export interface WorldOptions {
 }
 
 const SUN_DISTANCE_M = 1400;
-const SHADOW = { mapSize: 1024, extentM: 280, nearM: 200, farM: 2800 } as const;
+const SHADOW = { mapSize: 2048, extentM: 520, nearM: 200, farM: 3600 } as const;
 
 /** One era's own city: everything that sinks when the dial moves. */
 interface EraWorld {
@@ -130,7 +131,12 @@ export function createWorld({
   const first = (startEra ? eraById(startEra) : undefined) ?? eraById(DEFAULT_ERA) ?? eras[0];
   if (!first) throw new Error('no eras are built');
 
-  const ground: Ground = createGround(terrain, first.palette.land, first.palette.water);
+  const ground: Ground = createGround(
+    terrain,
+    first.palette.townGround,
+    first.palette.land,
+    first.palette.water,
+  );
   scene.add(ambient, sun, sun.target, ground.group);
 
   /**
@@ -251,15 +257,18 @@ export function createWorld({
     set: first.thoughts,
   });
 
+  const fromTown = new Color();
+  const toTown = new Color();
+  const blendTown = new Color();
   const fromLand = new Color();
   const fromWater = new Color();
   const toLand = new Color();
   const toWater = new Color();
   const blendLand = new Color();
   const blendWater = new Color();
-  setEraColours(first, fromLand, fromWater);
-  setEraColours(first, toLand, toWater);
-  ground.setColours(fromLand, fromWater);
+  setEraColours(first, fromTown, fromLand, fromWater);
+  setEraColours(first, toTown, toLand, toWater);
+  ground.setColours(fromTown, fromLand, fromWater);
 
   /**
    * Starts building the era. The cross-fade begins once it is built, a few
@@ -289,8 +298,8 @@ export function createWorld({
     current = built;
     current.group.scale.y = 0.001;
     current.setRoadOpacity(0);
-    setEraColours(leaving.era, fromLand, fromWater);
-    setEraColours(current.era, toLand, toWater);
+    setEraColours(leaving.era, fromTown, fromLand, fromWater);
+    setEraColours(current.era, toTown, toLand, toWater);
     beginEraChange(era, pending.id);
     pending = null;
   }
@@ -325,9 +334,10 @@ export function createWorld({
     eras,
     showEra,
     pendingEra: () => pending?.id ?? null,
-    update: (dtS, _elapsedS, view) => {
+    update: (dtS, elapsedS, view) => {
       const altitudeM = view.altitudeM;
       advanceClock(clock, dtS);
+      advanceClouds(elapsedS);
       advancePending();
 
       if (isChanging(era)) {
@@ -339,9 +349,10 @@ export function createWorld({
           leaving.group.scale.y = Math.max(0.001, 1 - rise);
           leaving.setRoadOpacity(1 - rise);
         }
+        blendTown.copy(fromTown).lerp(toTown, rise);
         blendLand.copy(fromLand).lerp(toLand, rise);
         blendWater.copy(fromWater).lerp(toWater, rise);
-        ground.setColours(blendLand, blendWater);
+        ground.setColours(blendTown, blendLand, blendWater);
 
         if (!era.reseated && era.progress >= RESEAT_AT) {
           era.reseated = true;
@@ -383,6 +394,7 @@ export function createWorld({
         if (!world) continue;
         world.buildings.setNight(night);
         world.buildings.setDetail(windows);
+        world.buildings.setFacade(detailFactor(DETAIL.facade, altitudeM));
         world.props.setNight(night);
         world.props.setDetail(props);
       }
@@ -403,7 +415,8 @@ export function createWorld({
   };
 }
 
-function setEraColours(era: Era, land: Color, water: Color): void {
+function setEraColours(era: Era, town: Color, land: Color, water: Color): void {
+  town.set(era.palette.townGround);
   land.set(era.palette.land);
   water.set(era.palette.water);
 }
