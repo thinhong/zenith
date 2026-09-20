@@ -92,12 +92,18 @@ export interface BuildingOptions {
    */
   litShare: number;
   glow: number;
+  /**
+   * The colour of a lit window. An oil lamp is orange, a filament is warm
+   * white, and whatever 2300 runs on is cool and even. This was fixed at one
+   * warm tone, which made every century's night look like the same century.
+   */
+  glowTint: readonly [number, number, number];
 }
 
 export function createBuildings(lots: readonly Lot[], options: BuildingOptions): Buildings {
   // One material for all three styles: the per-building numbers live in the
   // geometry, so the shader is compiled once.
-  const windows = createWindowMaterial(options.litShare, options.glow);
+  const windows = createWindowMaterial(options.litShare, options.glow, options.glowTint);
 
   const group = new Group();
   group.name = 'buildings';
@@ -254,7 +260,11 @@ function roofMesh(lots: readonly Lot[], colour: number): InstancedMesh {
  * the world turns each frame; the node types stay inferred rather than spelled
  * out, which keeps this readable.
  */
-function createWindowMaterial(litShare: number, glowStrength: number) {
+function createWindowMaterial(
+  litShare: number,
+  glowStrength: number,
+  tint: readonly [number, number, number],
+) {
   const night = uniform(0);
   const detail = uniform(1);
   const facade = uniform(1);
@@ -317,7 +327,7 @@ function createWindowMaterial(litShare: number, glowStrength: number) {
       .mul(facade),
   );
 
-  const glow = vec3(1.0, 0.82, 0.48)
+  const glow = vec3(tint[0], tint[1], tint[2])
     .mul(paneY)
     .mul(paneX)
     .mul(lit)

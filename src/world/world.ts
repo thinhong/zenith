@@ -173,6 +173,7 @@ export function createWorld({
       caps: layout.structures.length === 0,
       litShare: era.palette.windowsLit,
       glow: era.palette.windowGlow,
+      glowTint: era.palette.windowTint,
     });
     yield;
     const propPalette = {

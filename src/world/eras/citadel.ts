@@ -93,6 +93,8 @@ const PALETTE: EraPalette = {
   // Oil lamps, not the grid: a few dim windows, and most of the town dark.
   windowsLit: 0.08,
   windowGlow: 0.3,
+  // An oil flame, which is oranger than anything electric.
+  windowTint: [1.0, 0.64, 0.26],
   building: {
     // The halls and the gate houses: violet walls under orange tile.
     temple: [WALL.violet, 0x978aa8, 0x7d7290],

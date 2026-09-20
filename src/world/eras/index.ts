@@ -87,6 +87,8 @@ export interface EraPalette {
   /** Fraction of windows lit after dark, and how brightly they burn. */
   windowsLit: number;
   windowGlow: number;
+  /** The colour a lit window burns. */
+  windowTint: readonly [number, number, number];
   building: Readonly<Record<LotUse, readonly number[]>>;
   clothes: readonly number[];
 }

@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v13, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v14, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -151,7 +151,7 @@ src/
       citadel.ts           era 2: walled town, temple, market (~1800) (done)
       colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
       modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default) (done)
-      after.ts             era 5: overgrown ruins, few people (~2300) (done)
+      after.ts             era 5: slender towers, glass and planting (~2300) (done)
   agents/
     pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
     schedule.ts            pure: given clock hour + role -> where an agent wants to be (done)
@@ -279,6 +279,8 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 - **Roofs.** Nothing is a flat-topped box. `world/roofscape.ts` turns each lot into a ridged roof, or a deck set inside and below its own walls so the wall reads as a parapet, with a stair housing, a water tank and, on the tall ones, an off-centre plant room. Some low buildings grow a wing, so a footprint is not always one rectangle. A city seen from above is mostly roofs; without this it reads as a bar chart.
 - **Fog.** Always on, and it is the aerial perspective as much as the edge of the world. Colour equals the sky horizon so the world dissolves instead of ending; near and far scale with altitude so the far part of any frame reads as distance.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
+- **A figure is a person, not a brick.** Four shapes, about sixty triangles: a tapered column for the legs, a narrower one for the body, a shoulder ring, and a rounded head. The silhouette is what carries at five to eight pixels, so the proportions matter far more than the count. The geometry carries its own `color` attribute, which the material multiplies by the person's clothing colour, so one instance still gets a warmer head and darker trousers without a second draw call.
+- **Nothing draws people through walls.** There was a second pass doing that, added when a building could not be opened and everybody indoors was simply not drawn. It scattered figures over the face of every tower between the viewer and the people behind it, so somebody on the far pavement looked stuck to a wall. Opening a building is how you see inside one.
 - **Where people are visible.** Home and work take a person indoors and they stop being drawn; markets, parks and temples keep them outside, standing or sitting. M2 task 5 said workers should stand in rows at their desks, which cannot be seen through a solid box, so that part was dropped. Clothing is deliberately light: a 1.7 m figure is five to eight pixels from the roof band and the streets are dark, so mid-tones vanish.
 - **Citadel era (M5) reference.** `docs/reference/citadel-style.png` is the look to aim for. Owner's decision, 20 Sep 2026: **the place is Vietnamese, the style and palette are the reference's.** So the layout comes from the Imperial City in Hue (a square citadel on the river, a moat, gates on each side, a walled inner enclosure, long low halls on a central axis, dense housing outside the wall), and the way it is drawn comes from the picture: flat cel shading, no textures, saturated colour, heavy tree canopy between the walls.
 
@@ -529,6 +531,9 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 | 2026-09-20 | Everybody is drawn, indoors and out | the crowd was invisible while its thoughts floated over the roofs. Indoors people are placed inside their own building, a second pass shows whoever is hidden, and the aerial dots are not depth-tested |
 | 2026-09-20 | Rim light rather than an outline | a warm edge on faces turning away from the camera gives the silhouette an illustrated edge and costs no pass. A world-space outline cannot work here: one thick enough to read at 400 m is a border at 12 m, and the zoom range is the point. A real outline needs a screen-space pass |
 | 2026-09-20 | The hour is a slider on the bar, not only a URL parameter | the light is half of what the place looks like, and waiting fifteen real minutes to see dusk is not a way to look at it |
+| 2026-09-20 | 2300 is a future, not a ruin | owner's call, replacing the green-ruin version. The road grid is still 2020's, because that is what ties the eras to one piece of ground |
+| 2026-09-20 | A lit window's colour belongs to the era | it was fixed at one warm tone, so every century's night looked like the same century. An oil flame is orange, a filament is warm white, 2300 is cool |
+| 2026-09-20 | Nothing is drawn through a wall | owner's call. Seeing the far pavement's crowd stuck to the near tower is worse than not seeing them |
 | 2026-09-20 | The frame goes through a post-processing chain | tilt shift, outlines and bloom all need the finished picture, and the first two cannot be done any other way at this zoom range |
 | 2026-09-20 | Twelve thousand people, not four | four thousand over nineteen hundred buildings is two each over nine floors, so an opened building was genuinely empty |
 | 2026-09-20 | Buildings open one at a time on a click, rather than the whole town going transparent | owner's call: the transparency made a soup. A building with no front wall is a section drawing; a transparent one is a ghost |

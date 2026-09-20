@@ -43,6 +43,8 @@ const PALETTE: EraPalette = {
   lamps: true,
   windowsLit: 0.42,
   windowGlow: 0.85,
+  // Warm white: a room with a lamp in it.
+  windowTint: [1.0, 0.82, 0.48],
   building: {
     // Downtown: concrete, weathered render and glass.
     work: [0xbcc4cc, 0x9fabb6, 0xd2d8de, 0x86a0b4, 0xafbdc8],

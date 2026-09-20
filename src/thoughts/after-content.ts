@@ -1,72 +1,74 @@
 import type { ThoughtSet } from '@/thoughts/content';
 
 /**
- * What people worry about about 2300, three hundred years after the traffic
- * stopped. Same rules as the other sets (PLAN.md 7): first person, present
- * tense, under sixty characters, gentle.
+ * What people worry about about 2300. Same rules as the other sets (PLAN.md
+ * 7): first person, present tense, under sixty characters, gentle.
  *
- * Nobody here is mourning. They were born into this and it is simply the
- * world: the tower is where the birds are, the flood line is where the flood
- * line is, and the worry is whether the roof will hold. A few of the worries
- * are word for word the ones from 1800 and 2020, which is the whole point of
- * the piece. The clothes change, the worries do not.
+ * The era shows in the nouns and nowhere else. The tower is tall, the light is
+ * cool, the pod is late, and none of that has changed what anybody is actually
+ * thinking about: the rent, the parent, the message that has not come back. A
+ * few of these are word for word the ones from 1800 and 2020, which is the
+ * whole point of the piece. The clothes change, the worries do not.
+ *
+ * Nothing here is a gadget for its own sake, and nobody explains their century
+ * to themselves. People do not narrate the world they were born into.
  */
 export const AFTER_THOUGHTS: ThoughtSet = {
   home: [
-    'The roof leaks again when it rains.',
-    'I should visit my mother.',
-    'The rain came in through the east wall.',
-    'My daughter is taller than the door now.',
-    'One good year. That is all I ask.',
-    'The stairs are safe to the fourth floor.',
-    'I will mend it tomorrow. Truly.',
-    'It is warmer up here than it was below.',
-    'The old glass is good for the cold frame.',
+    'The window is dimmed again. I like the rain.',
+    'I should call my mother.',
+    'Sixty-one floors and I still hear the street.',
+    'The rent is due on the first.',
+    'One more year, then I rest.',
+    'She still has not written back.',
+    'The plants on the east side are doing better.',
+    'I will start swimming tomorrow.',
+    'My son has grown out of his shoes again.',
   ],
   work: [
-    'The beans are in before the rain, I hope.',
-    'This wall will not hold another winter.',
-    'I have pulled this ivy out twice already.',
-    'Somebody made this. I would like to know who.',
-    'The well is lower than it was in spring.',
-    'We need more hands than we have.',
-    'If I am careful, it will last my life.',
-    'The metal in there is still good.',
+    'The report is due at four.',
+    'Nobody read it. I know nobody read it.',
+    'Three of us do the work of one, now.',
+    'I do not understand half of what I approve.',
+    'If I am careful, nobody notices me.',
+    'He was promoted. I trained him.',
+    'It will hold for another century. Probably.',
+    'I have checked it twice. I will check it again.',
   ],
   market: [
-    'Four eggs for the rope. That is fair.',
-    'Nobody has salt this month.',
+    'Everything is cheaper on the lower level.',
     'She always keeps the best for herself.',
-    'I will trade the honey, not the comb.',
-    'The seed from the north grew better.',
-    'He says the river road is passable now.',
-    'I came for thread and forgot the thread.',
+    'I came for one thing and forgot the thing.',
+    'The tomatoes are better than they used to be.',
+    'Nobody has time to cook it anyway.',
+    'I will trade the hours, not the day.',
+    'He gives good weight. I go back to him.',
   ],
   temple: [
-    'Let the roof hold. That is the whole prayer.',
-    'My grandmother sat where I am sitting.',
-    'They were so many. Where did they all go?',
-    'I do not know their names. I say them anyway.',
-    'It is quiet here, and I am grateful.',
     'Let her come back before the cold.',
+    'My grandmother sat where I am sitting.',
+    'It is quiet here, and I am grateful.',
+    'I do not know if anyone is listening.',
+    'Let the results be good. Just this once.',
+    'I say their names. It costs me nothing.',
     'Thank you. Just thank you.',
   ],
   park: [
-    'The heron is back on the tower.',
-    'I have not heard an engine in my life.',
+    'The herons came back before we did.',
     'This was a road once. You can feel it.',
-    'The water is higher than the old mark.',
     'Sit a while. Nothing is waiting.',
-    'The bees are early this year.',
+    'The light is better here than up there.',
     'My father climbed that one as a boy.',
+    'The bees are early this year.',
+    'I have not been down here in months.',
   ],
   street: [
-    'Mind the third step. It gives.',
-    'That one came down in the spring.',
+    'The pod is late and I am not sorry.',
     'I know this turning without looking.',
-    'Somebody has been up here before me.',
-    'The birds go in at the same hour we do.',
+    'Everyone is looking up except me.',
     'Rain by evening, I should think.',
-    'It is a long way round since the bridge went.',
+    'That one was not here last spring.',
+    'I will walk it. It is only twenty minutes.',
+    'The lights come on before I am ready.',
   ],
 };

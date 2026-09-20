@@ -14,7 +14,6 @@ import {
   attachInstanceColors,
   createInstanceColorMaterial,
   paletteToLinear,
-  setMaterialsXray,
   writeInstanceMatrix,
 } from '@/world/instanced';
 

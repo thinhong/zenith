@@ -1,14 +1,13 @@
 import {
   Color,
   DynamicDrawUsage,
-  GreaterDepth,
   InstancedBufferAttribute,
   InstancedMesh,
   type Material,
 } from 'three';
 import { attribute, varying } from 'three/tsl';
 import { cloudShadow } from '@/world/atmosphere';
-import { MeshBasicNodeMaterial, MeshLambertNodeMaterial } from 'three/webgpu';
+import { MeshLambertNodeMaterial } from 'three/webgpu';
 
 /**
  * Shared bits for the crowds. Everything that repeats more than about twenty
@@ -30,44 +29,20 @@ export function createInstanceColorMaterial(clouds = false): MeshLambertNodeMate
 }
 
 /**
- * The same instance colour, drawn only where something else is already in
- * front of it: the parts of a crowd a wall or a roof is hiding.
+ * Per-instance colour, multiplied by a tint baked into the geometry itself.
  *
- * This is what lets the town be watched as an anthill. A person who goes
- * indoors, or who walks behind a building, used to disappear while their
- * thought went on floating over the roof, so the place showed thoughts with
- * nobody attached to them. Unlit on purpose: a Lambert figure seen through a
- * roof is in shadow, and comes out too dark to see.
+ * One instance carries one colour, which is why a figure used to be a person
+ * painted a single shade from the shoes up. The geometry's own `color`
+ * attribute gives each part of it a factor instead: a head is warmer and
+ * lighter than the shirt, trousers are darker. Three tones, still one
+ * instance, still one draw call.
  */
-export function createGhostMaterial(opacity: number): MeshBasicNodeMaterial {
-  const material = new MeshBasicNodeMaterial();
-  material.colorNode = varying(attribute('iColor', 'vec3'));
-  material.transparent = true;
-  material.opacity = opacity;
-  material.depthWrite = false;
-  material.depthFunc = GreaterDepth;
+export function createTintedInstanceMaterial(): MeshLambertNodeMaterial {
+  const material = new MeshLambertNodeMaterial();
+  const colour = varying(attribute('iColor', 'vec3'));
+  const tint = varying(attribute('color', 'vec3'));
+  material.colorNode = colour.mul(tint);
   return material;
-}
-
-/**
- * How see-through a wall or a roof is when the x-ray is on. Low enough that
- * the people inside read plainly, high enough that the building is still a
- * building rather than a smear.
- */
-export const XRAY_OPACITY = 0.19;
-
-/**
- * Turns a set of materials see-through, or back. Depth writing goes off with
- * it: without that a transparent wall still fills the depth buffer and goes on
- * hiding everything behind it, which is the whole thing the x-ray is for.
- */
-export function setMaterialsXray(materials: readonly Material[], on: boolean): void {
-  for (const material of materials) {
-    material.transparent = on;
-    material.opacity = on ? XRAY_OPACITY : 1;
-    material.depthWrite = !on;
-    material.needsUpdate = true;
-  }
 }
 
 /**

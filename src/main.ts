@@ -53,10 +53,6 @@ async function main(): Promise<void> {
     onPause: (paused) => {
       world.clock.paused = paused;
     },
-    openCount: () => world.opened.size,
-    onCloseAll: () => {
-      world.closeAll();
-    },
   });
 
   // --- opening a building ----------------------------------------------------

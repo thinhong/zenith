@@ -35,13 +35,13 @@ import {
 import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import {
   attachInstanceColors,
-  createGhostMaterial,
-  createInstanceColorMaterial,
+  createTintedInstanceMaterial,
   markColorsChanged,
   markDynamic,
   paletteToLinear,
   writeInstanceMatrix,
 } from '@/world/instanced';
+import { figureGeometry } from '@/agents/figure';
 import { storeyHeightM, storeysIn } from '@/world/interior';
 import { nearestNode, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
@@ -82,8 +82,6 @@ const PEOPLE = {
    * clothing colour: a single pale grey reads as dust on the roofs.
    */
   dotSizePx: 4.5,
-  /** How strongly a figure shows through whatever is hiding it. */
-  ghostOpacity: 0.55,
 
 } as const;
 
@@ -179,7 +177,7 @@ export function createPeople(options: PeopleOptions): People {
   group.name = 'people';
 
   const geometry = figureGeometry();
-  const figures = new InstancedMesh(geometry, createInstanceColorMaterial(), PEOPLE.maxFigures);
+  const figures = new InstancedMesh(geometry, createTintedInstanceMaterial(), PEOPLE.maxFigures);
   figures.name = 'people-figures';
   figures.count = 0;
   figures.frustumCulled = false;
@@ -191,17 +189,15 @@ export function createPeople(options: PeopleOptions): People {
   const figureMatrices = figures.instanceMatrix.array as Float32Array;
   group.add(figures);
 
-  // The same people again, showing through whatever hides them. It shares the
-  // geometry, so it shares the colour attribute, and it is handed the same
-  // matrix buffer rather than a copy of it: one extra draw call and no extra
-  // work per frame.
-  const ghosts = new InstancedMesh(geometry, createGhostMaterial(PEOPLE.ghostOpacity), PEOPLE.maxFigures);
-  ghosts.name = 'people-ghosts';
-  ghosts.count = 0;
-  ghosts.frustumCulled = false;
-  ghosts.instanceMatrix = figures.instanceMatrix;
-  ghosts.renderOrder = 2;
-  group.add(ghosts);
+  /*
+   * There is no second pass drawing the crowd through walls any more. It was
+   * put in when a building could not be opened and everybody indoors was
+   * simply not drawn, and it did answer that. What it does now is scatter
+   * figures over the face of every tower between the viewer and the people
+   * behind it, which is worse than not seeing them: a person standing on the
+   * far pavement appears to be stuck to a wall. Opening a building is the way
+   * to see inside one.
+   */
 
   const dotPositions = new Float32Array(pool.capacity * 3);
   const dotTints = new Float32Array(pool.capacity * 3);
@@ -220,17 +216,15 @@ export function createPeople(options: PeopleOptions): People {
       vertexColors: true,
       size: PEOPLE.dotSizePx,
       sizeAttenuation: false,
-      // Never hidden. From up here a person is one pixel and a roof is a
-      // hundred, so depth-testing the dots meant the whole town looked empty
-      // while four thousand people moved about under it. This is the view the
-      // piece is named for: the place as an anthill.
-      depthTest: false,
+      // Depth-tested, like everything else. Drawing them through the roofs
+      // showed the whole population at once, but it also put people on top of
+      // buildings they were nowhere near, and a town where the crowd floats
+      // over the rooftops reads as a fault rather than as a crowd.
       depthWrite: false,
     }),
   );
   dots.name = 'people-dots';
   dots.frustumCulled = false;
-  dots.renderOrder = 3;
   group.add(dots);
 
   const stats: PeopleStats = { updateMs: 0, outside: 0, walking: 0, drawn: 0 };
@@ -384,7 +378,6 @@ export function createPeople(options: PeopleOptions): People {
       slot++;
     }
     figures.count = slot;
-    ghosts.count = slot;
     figures.instanceMatrix.needsUpdate = true;
     markColorsChanged(figures);
     stats.drawn = slot;
@@ -478,7 +471,6 @@ export function createPeople(options: PeopleOptions): People {
       const showFigures = view.altitudeM < AGENTS.figuresMaxM;
       const showDots = !showFigures && view.altitudeM < AGENTS.peopleDotsMaxM;
       figures.visible = showFigures;
-      ghosts.visible = showFigures;
       dots.visible = showDots;
       if (showFigures) drawFigures(view);
       else if (showDots) drawDots();
@@ -493,18 +485,6 @@ export function createPeople(options: PeopleOptions): People {
  * Three boxes: legs, body, head, 1.7 m tall with its feet at y = 0 and its
  * front along local +x. No skeleton anywhere in Zenith (PLAN.md 5).
  */
-function figureGeometry(): BufferGeometry {
-  const legs = new BoxGeometry(0.3, 0.8, 0.42);
-  legs.translate(0, 0.4, 0);
-  const body = new BoxGeometry(0.34, 0.62, 0.5);
-  body.translate(0, 1.11, 0);
-  const head = new BoxGeometry(0.26, 0.28, 0.26);
-  head.translate(0, 1.56, 0);
-  const merged = mergeGeometries([legs, body, head]);
-  if (!merged) throw new Error('could not merge the figure geometry');
-  return merged;
-}
-
 function fract(value: number): number {
   return value - Math.floor(value);
 }

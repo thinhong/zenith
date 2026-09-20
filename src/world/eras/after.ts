@@ -1,13 +1,7 @@
 import { smoothstep } from '@/state/altitude';
 import { AFTER_THOUGHTS } from '@/thoughts/after-content';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
-import {
-  avenueCorridors,
-  buildBlocks,
-  buildLots,
-  type Lot,
-  type LotProfile,
-} from '@/world/lots';
+import { avenueCorridors, buildBlocks, buildLots, type LotProfile } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
@@ -15,177 +9,168 @@ import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import type { TerrainSpec } from '@/world/terrain';
 
 /**
- * About 2300. The same streets, three hundred years after the last of the
- * traffic.
+ * About 2300. The same land, built high and built light.
  *
- * The plan is 2020's, because a road grid outlives everything built along it:
- * that is the point of the era, and it is why the layout is not regenerated.
- * What changes is what happened to it. Most buildings are gone and what is
- * left has sunk and is half under growth, the water stands higher than it did,
- * a few hundred people live in what still has a roof, and nothing drives.
+ * The plan is still 2020's grid, deliberately: a road outlives everything put
+ * up along it, and keeping it is what ties five centuries to one piece of
+ * ground. What changed is what stands on it. The centre is slender towers on
+ * wide podiums; the edges are low and green; the roofs carry pads and masts
+ * rather than tanks and chimneys; and the planting goes up the buildings
+ * instead of being squeezed between them.
  *
- * It is the quiet end of the dial, so almost everything here is a reduction:
- * fewer lots, lower, greener, and no vehicles worth the name.
+ * It is a quiet future, not a shining one. Nothing here is chrome. The palette
+ * is the pale cool grey of a building that is mostly glass, with planting and
+ * one warm accent, and the only thing that moves on the ground is a small
+ * unhurried pod.
  */
 
-const AFTER = {
-  /** Share of 2020's buildings still standing at all. */
-  standingShare: 0.38,
-  /** How far a survivor has sunk into the ground, as a share of its height. */
-  sinkMin: 0.15,
-  sinkMax: 0.55,
-  /** Share of empty plots that have gone back to trees. */
-  thicketShare: 0.62,
-} as const;
-
 const PALETTE: EraPalette = {
-  // The tarmac has gone under, so the ground between buildings is not much
-  // different from the country around it.
-  townGround: 0x7a8a52,
-  land: 0x7e9155,
-  water: 0x4c88ae,
-  road: 0x76804f,
-  pavement: 0x8a8f66,
-  roof: 0x8a8f7e,
-  canopy: 0x467038,
-  trunk: 0x5c4c3a,
-  lampOn: 0x000000,
-  // Everything is overgrown, so a yard tree is the rule rather than a mark
-  // of a house that has one.
-  courtyardChance: 0.92,
-  canopyScale: 1.7,
-  canopyRound: 0x527e3c,
-  roundShare: 0.62,
-  bush: 0x5a8442,
-  bushesPerTree: 1.2,
-  lamps: false,
-  // A handful of windows, by firelight. Nothing is on the grid.
-  windowsLit: 0.05,
-  windowGlow: 0.22,
+  // Paving, not tarmac: a surface is a surface and it is light.
+  townGround: 0x9aa0a4,
+  land: 0x7f9256,
+  water: 0x4f93bb,
+  road: 0x8d949a,
+  pavement: 0xb4bbbe,
+  roof: 0xc6ccd0,
+  canopy: 0x4f8a48,
+  trunk: 0x6b6258,
+  lampOn: 0xbfe6ff,
+  /**
+   * Planting is part of the building here, not a gap left between them, so
+   * nearly every plot has something growing on it.
+   */
+  courtyardChance: 0.72,
+  canopyScale: 1.2,
+  canopyRound: 0x5f9a52,
+  roundShare: 0.7,
+  bush: 0x6aa85c,
+  bushesPerTree: 1.0,
+  lamps: true,
+  /**
+   * Almost every pane is lit and the light is cool and even, because nothing
+   * is a bulb in a room any more. From above at night the towers read as
+   * lanterns rather than as grids of separate windows.
+   */
+  windowsLit: 0.58,
+  windowGlow: 0.52,
+  /**
+   * Cool and even, and deliberately weaker than 2020's. Lighting three
+   * quarters of the panes at full strength and then putting bloom on top
+   * burned the whole city to white, which is the opposite of a quiet future.
+   */
+  windowTint: [0.82, 0.92, 1.0],
   building: {
-    // Concrete that has been out in the weather for three centuries: stained,
-    // greened at the base, bleached at the top.
-    work: [0x9aa094, 0x87907f, 0xa8ab9c, 0x76806e, 0x929a8a],
-    home: [0xa8a690, 0x93917e, 0xb2b09a, 0x8a8c78, 0x9e9c86],
-    market: [0x9c9a82, 0x8c8a74],
-    temple: [0x8e7a62, 0x7d6b55],
+    // Glass and pale composite. The separation between uses is barely there,
+    // which is itself the look: one material, used everywhere.
+    work: [0xdbe4ea, 0xc2d2dd, 0xe8eef2, 0xaec6d6, 0xcfdae2],
+    home: [0xe4e6e4, 0xd0d6d6, 0xeceeec, 0xc4ccce, 0xdadedd],
+    market: [0xe0e0d4, 0xd2d4c6],
+    // The one warm thing in the era, and the only saturated colour in it.
+    temple: [0xd28a5a, 0xc07a4c],
     park: [0x000000],
     water: [0x000000],
   },
-  clothes: [0xd8cdb4, 0xb8a98c, 0x8e9a72, 0xc6b89c, 0x9d8f76, 0xcfc4a8, 0x7f8a66],
+  clothes: [0xf4f6f6, 0xd8e4ea, 0xbcd2cc, 0xe8a07c, 0x9fb4c4, 0xeee0c4, 0xc4b6da, 0xaecfb4],
 };
 
-/** Nothing drives. A handcart is the largest thing that moves. */
+/** Small, slow and quiet. Nothing here is in a hurry. */
 const VEHICLES: VehicleProfile = {
   major: {
-    lengthM: 1.8,
-    heightM: 0.9,
-    widthM: 0.9,
-    speedMS: { min: 1.0, max: 1.5 },
-    colours: [0x8a7a5c, 0x756548],
+    lengthM: 3.4,
+    heightM: 1.5,
+    widthM: 1.7,
+    speedMS: { min: 5, max: 8 },
+    colours: [0xe8eef0, 0xc8d6de, 0xa8bcc8, 0xdad4c6],
   },
   minor: {
-    lengthM: 1.1,
-    heightM: 0.7,
-    widthM: 0.6,
-    speedMS: { min: 0.9, max: 1.3 },
-    colours: [0x7e6f52, 0x6a5c42],
+    lengthM: 2.0,
+    heightM: 1.2,
+    widthM: 1.0,
+    speedMS: { min: 4, max: 7 },
+    colours: [0xdfe6ea, 0xb8c8d2],
   },
-  minorShare: 0.8,
-  density: 0.04,
+  minorShare: 0.6,
+  // Fewer than 2020 and slower, because most of the moving about is not here.
+  density: 0.35,
 };
 
 const ROOF_STYLE: RoofStyle = {
-  // Whatever was to hand: sheet, board, and old tile off the ruins.
-  tile: [0x8a7f68, 0x76705c, 0x9a6f52, 0x6e7264, 0x847a62],
-  grandTile: [0x9a6f52, 0x8a7f68],
-  // A deck that is not maintained is a deck with a wood on it.
-  deck: [0x5e6b46, 0x6c7850, 0x54603e],
-  clutter: [0x8e9078, 0x7c7e68],
-  pitchedShare: 0.62,
-  pitchedMaxM: 22,
-  wingShare: 0.2,
-  crowns: false,
-  crownTint: [0x8e9078],
-  chimney: { share: 0.55, colours: [0x84796a, 0x6f665a] },
-  // Roof gardens, but not on purpose.
-  deckTop: { share: 0.8, colours: [0x4e7a3a, 0x5e8a44, 0x446e34] },
+  // Nothing is tiled. What little is pitched is a smooth pale shell.
+  tile: [0xc8d0d4, 0xb6c0c6, 0xd6dce0],
+  grandTile: [0xd28a5a, 0xc07a4c],
+  // A roof deck is a surface people use, so it is pale and clean, not tar.
+  deck: [0xb2bac0, 0xa2acb4, 0xc0c8cc],
+  clutter: [0xd8dee2, 0xc2cace, 0xe6eaec],
+  pitchedShare: 0.08,
+  pitchedMaxM: 12,
+  wingShare: 0.18,
+  crowns: true,
+  crownTint: [0xdfe6ea, 0xc8d2d8, 0xeef2f4],
+  // No fires, so no chimneys.
+  chimney: { share: 0, colours: [0xc0c8cc] },
+  /**
+   * Four roofs in five carry something: a garden, a water tank's descendant,
+   * or a pad. Green and pale grey rather than tar and rust.
+   */
+  deckTop: { share: 0.82, colours: [0x5f9a52, 0x4f8a48, 0xc8d2d8, 0x6aa85c] },
 };
 
 const STREET_STYLE: StreetStyle = {
-  wallShare: 0.5,
-  wallHeightM: 1.0,
-  wallColours: [0x8c8a72, 0x7a7c64, 0x9a9880],
-  // Not parked. Left.
-  parkedShare: 0.18,
-  parked: { lengthM: 3.4, widthM: 1.6, heightM: 1.1, colours: [0x78806e, 0x6a7264, 0x848a74] },
-  poleShare: 0.12,
-  poleColour: 0x6e6a58,
+  // Low planters edging a plot rather than a wall keeping anyone out.
+  wallShare: 0.55,
+  wallHeightM: 0.7,
+  wallColours: [0xc0c6c8, 0x5f9a52, 0xb4bcc0],
+  // Very little is left standing about.
+  parkedShare: 0.22,
+  parked: { lengthM: 3.0, widthM: 1.6, heightM: 1.3, colours: [0xdfe6ea, 0xc4d0d8] },
+  // Slim masts, everywhere, carrying whatever this century carries.
+  poleShare: 0.55,
+  poleColour: 0xc4ccd0,
 };
 
 const AFTER_LOTS: LotProfile = {
+  /**
+   * The centre is cut into very few, very large plots and the edge into many
+   * small ones. That is what puts slender towers on wide podiums downtown and
+   * keeps the outskirts low, and it is the opposite of 2020, where the whole
+   * town was cut to roughly the same grain.
+   */
   lotsPerBlock: (d) => {
-    const t = smoothstep(0.15, 0.55, d);
-    return { min: Math.round(2 + 4 * t), max: Math.round(4 + 8 * t) };
+    const t = smoothstep(0.12, 0.6, d);
+    return { min: Math.round(1 + 6 * t), max: Math.round(2 + 11 * t) };
   },
-  maxAspect: 4.2,
+  // Slimmer than anything 2020 could stand up.
+  maxAspect: 7.5,
   minLotSideM: 3.5,
   splitFloorM: 8,
-  setbackM: 1,
-  // Most of it is wood now.
-  parkChance: (d) => 0.3 + 0.35 * smoothstep(0.2, 1, d),
+  setbackM: 1.6,
+  parkChance: (d) => 0.14 + 0.2 * smoothstep(0.3, 1, d),
   weights: (d) => {
-    const centre = 1 - smoothstep(0.2, 0.6, d);
+    const centre = 1 - smoothstep(0.15, 0.55, d);
     return {
-      work: 0.06 + 0.3 * centre,
-      home: 0.5,
-      market: 0.05,
-      temple: 0.04,
-      park: 0.35,
+      work: 0.08 + 0.42 * centre,
+      home: 0.52,
+      market: 0.1,
+      temple: 0.02,
+      park: 0.18,
     };
   },
   heightFor: (rng, use, d) => {
-    const centre = 1 - smoothstep(0.2, 0.6, d);
+    const centre = 1 - smoothstep(0.1, 0.62, d);
     if (use === 'park') return 0;
-    if (use === 'work') return range(rng, 8, 22) + 26 * centre;
-    return range(rng, 4, 9);
+    if (use === 'work') return range(rng, 14, 34) + 96 * centre * centre;
+    if (use === 'market') return range(rng, 6, 14);
+    return range(rng, 7, 20) + 34 * centre;
   },
-  style: (heightM) => (heightM >= 40 ? 'tower' : heightM >= 16 ? 'slab' : 'low'),
+  style: (heightM) => (heightM >= 46 ? 'tower' : heightM >= 16 ? 'slab' : 'low'),
 };
 
-/**
- * Takes most of the town away and sinks what is left.
- *
- * A ruin is not a building with a different colour on it. It is shorter than
- * it was, because three hundred years of silt and growth put a metre or two
- * over everything, and there are far fewer of them.
- */
-function ruin(rng: Rng, lots: readonly Lot[]): Lot[] {
-  const out: Lot[] = [];
-  for (const lot of lots) {
-    if (lot.use === 'park' || lot.heightM <= 0) {
-      out.push({ ...lot, id: out.length });
-      continue;
-    }
-    if (rng() >= AFTER.standingShare) {
-      // Gone. The plot goes back to trees, which `props.ts` then plants on it.
-      out.push({ ...lot, id: out.length, use: 'park', heightM: 0 });
-      continue;
-    }
-    const sunk = 1 - range(rng, AFTER.sinkMin, AFTER.sinkMax);
-    out.push({ ...lot, id: out.length, heightM: Math.max(3, lot.heightM * sunk) });
-  }
-  return out;
-}
-
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
-  // The same grid as 2020. A road outlives what was built along it, and that
-  // is the whole reason this era is worth showing on the same land.
   const roads = buildRoadGraph(rng, terrain);
   yield;
   const blocks = buildBlocks(terrain);
   yield;
-  const lots = ruin(rng, buildLots(rng, terrain, blocks, avenueCorridors(roads), AFTER_LOTS));
+  const lots = buildLots(rng, terrain, blocks, avenueCorridors(roads), AFTER_LOTS);
   yield;
   const structures: Structure[] = buildRoofscape(rng, lots, ROOF_STYLE);
   yield;
@@ -201,12 +186,13 @@ export const AFTER_ERA: Era = {
   lots: AFTER_LOTS,
   vehicles: VEHICLES,
   thoughts: AFTER_THOUGHTS,
-  population: { people: 900, vehicles: 24 },
+  // Denser than 2020 on the same ground, because it is built higher.
+  population: { people: 13000, vehicles: 300 },
   interior: {
-    wall: 0xbcb8a4,
-    floor: 0x8a8a6a,
-    core: 0x7e7e62,
-    furniture: [0x6c6a4e, 0x7e7a5c, 0x5c6a44, 0x86805f],
+    wall: 0xeef2f4,
+    floor: 0xc6ced2,
+    core: 0xb0b8be,
+    furniture: [0x8fa0ac, 0x6f9a62, 0xc0c8cc, 0xa8b4bc, 0xd28a5a],
   },
   build,
 };
