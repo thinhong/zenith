@@ -3,10 +3,15 @@ import {
   MAX_THOUGHT_LENGTH,
   MODERN_THOUGHTS,
   THOUGHT_PLACES,
+  thoughtPool,
   thoughtsFor,
+  timeOfDay,
+  TIMES_OF_DAY,
   type ThoughtPlace,
   type ThoughtSet,
 } from './content';
+import { HUMAN_THOUGHTS } from './human-content';
+import { ROLES } from '@/agents/schedule';
 import { AFTER_THOUGHTS } from './after-content';
 import { CITADEL_THOUGHTS } from './citadel-content';
 import { MYTH_THOUGHTS } from './myth-content';
@@ -18,7 +23,16 @@ const SETS: ReadonlyArray<[string, ThoughtSet, number]> = [
   ['citadel', CITADEL_THOUGHTS, 40],
   ['after', AFTER_THOUGHTS, 40],
 ];
-const ALL = SETS.flatMap(([, set]) => THOUGHT_PLACES.flatMap((place) => set[place]));
+/** Every line in a set: its places, then its roles, then its times of day. */
+function linesOf(set: ThoughtSet): string[] {
+  return [
+    ...THOUGHT_PLACES.flatMap((place) => set[place]),
+    ...ROLES.flatMap((role) => set.byRole?.[role] ?? []),
+    ...TIMES_OF_DAY.flatMap((time) => set.byTime?.[time] ?? []),
+  ];
+}
+
+const ALL = [...SETS.flatMap(([, set]) => linesOf(set)), ...linesOf(HUMAN_THOUGHTS)];
 
 describe('MODERN_THOUGHTS', () => {
   it('has a set for every place and enough of them overall', () => {
@@ -55,9 +69,39 @@ describe('MODERN_THOUGHTS', () => {
   });
 
   it('repeats nothing inside one era', () => {
+    for (const [name, set] of [...SETS, ['human', HUMAN_THOUGHTS, 0] as const]) {
+      const texts = linesOf(set);
+      const seen = new Set<string>();
+      for (const text of texts) {
+        expect(seen.has(text), `${name}: "${text}"`).toBe(false);
+        seen.add(text);
+      }
+    }
+  });
+
+  it('speaks for every kind of person and every part of the day, in every era', () => {
     for (const [name, set] of SETS) {
-      const texts = THOUGHT_PLACES.flatMap((place) => set[place]);
-      expect(new Set(texts).size, name).toBe(texts.length);
+      for (const role of ROLES) {
+        expect(set.byRole?.[role]?.length ?? 0, `${name} ${role}`).toBeGreaterThanOrEqual(8);
+      }
+      for (const time of TIMES_OF_DAY) {
+        expect(set.byTime?.[time]?.length ?? 0, `${name} ${time}`).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+
+  it('has a large enough bag that a person rarely hears the same line twice', () => {
+    // Every context a person can be in, in every era: the pool they draw from
+    // is their era's place, role and time, plus the human core's.
+    for (const [name, set] of SETS) {
+      for (const place of THOUGHT_PLACES) {
+        for (const role of ROLES) {
+          for (const time of TIMES_OF_DAY) {
+            const pool = thoughtPool(set, { place, role, time }, HUMAN_THOUGHTS);
+            expect(pool.length, `${name} ${place} ${role} ${time}`).toBeGreaterThanOrEqual(60);
+          }
+        }
+      }
     }
   });
 
@@ -100,6 +144,87 @@ describe('MODERN_THOUGHTS', () => {
       expect(text).not.toContain('—');
       expect(text).not.toContain('–');
     }
+  });
+});
+
+describe('HUMAN_THOUGHTS', () => {
+  it('is large, because every era stands on it', () => {
+    expect(linesOf(HUMAN_THOUGHTS).length).toBeGreaterThanOrEqual(240);
+  });
+
+  it('is true in all four worlds, so it names nothing from one of them', () => {
+    // Anything here is thought by somebody in a myth town and somebody in
+    // 2300 alike, so no machines, no clocks, no drinks or money with a name.
+    // Whole words, or "business" is caught for containing a bus.
+    const anachronisms = [
+      'phones?', 'texts?', 'texted', 'emails?', 'screens?', 'scooters?', 'cars?', 'bus',
+      'buses', 'trains?', 'coffee', 'tea', "o'clock", 'minutes?', 'dong', 'coins?',
+      'dollars?', 'offices?', 'computers?', 'internet', 'mandarins?', 'dragons?', 'pods?',
+      'spreadsheets?', 'wyrm', 'exam',
+    ].map((word) => new RegExp(`\\b${word}\\b`, 'i'));
+    const offenders = linesOf(HUMAN_THOUGHTS).filter((text) =>
+      anachronisms.some((pattern) => pattern.test(text)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not repeat a line an era already says', () => {
+    const core = new Set(linesOf(HUMAN_THOUGHTS));
+    for (const [name, set] of SETS) {
+      for (const text of linesOf(set)) expect(core.has(text), `${name}: "${text}"`).toBe(false);
+    }
+  });
+});
+
+describe('timeOfDay', () => {
+  it('divides the day the way people do', () => {
+    expect(timeOfDay(6)).toBe('dawn');
+    expect(timeOfDay(9.5)).toBe('morning');
+    expect(timeOfDay(14)).toBe('afternoon');
+    expect(timeOfDay(18)).toBe('evening');
+    expect(timeOfDay(23)).toBe('night');
+    expect(timeOfDay(2)).toBe('night');
+  });
+
+  it('turns over exactly on the hour', () => {
+    expect(timeOfDay(4.99)).toBe('night');
+    expect(timeOfDay(5)).toBe('dawn');
+    expect(timeOfDay(20.99)).toBe('evening');
+    expect(timeOfDay(21)).toBe('night');
+  });
+
+  it('wraps a clock past midnight', () => {
+    expect(timeOfDay(24 + 9)).toBe('morning');
+    expect(timeOfDay(-1)).toBe('night');
+  });
+});
+
+describe('thoughtPool', () => {
+  it('draws on the era and the core together', () => {
+    const pool = thoughtPool(MODERN_THOUGHTS, { place: 'work', role: 'student', time: 'night' }, HUMAN_THOUGHTS);
+    expect(pool).toContain(MODERN_THOUGHTS.work[0]);
+    expect(pool).toContain(HUMAN_THOUGHTS.work[0]);
+    expect(pool).toContain(HUMAN_THOUGHTS.byRole?.student?.[0]);
+    expect(pool).toContain(HUMAN_THOUGHTS.byTime?.night?.[0]);
+  });
+
+  it('leaves out what belongs to somebody else', () => {
+    const pool = thoughtPool(MODERN_THOUGHTS, { place: 'work', role: 'student', time: 'night' }, HUMAN_THOUGHTS);
+    expect(pool).not.toContain(HUMAN_THOUGHTS.byRole?.retired?.[0]);
+    expect(pool).not.toContain(HUMAN_THOUGHTS.byTime?.dawn?.[0]);
+    expect(pool).not.toContain(HUMAN_THOUGHTS.market[0]);
+  });
+
+  it('holds each line once, however many lists it is in', () => {
+    const pool = thoughtPool(MODERN_THOUGHTS, { place: 'home', role: 'retired', time: 'evening' }, HUMAN_THOUGHTS);
+    expect(new Set(pool).size).toBe(pool.length);
+  });
+
+  it('hands back the same list for the same context', () => {
+    const context = { place: 'park', role: 'shop', time: 'dawn' } as const;
+    expect(thoughtPool(MODERN_THOUGHTS, context, HUMAN_THOUGHTS)).toBe(
+      thoughtPool(MODERN_THOUGHTS, context, HUMAN_THOUGHTS),
+    );
   });
 });
 

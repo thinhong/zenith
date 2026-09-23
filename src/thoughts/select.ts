@@ -1,3 +1,4 @@
+import type { Role } from '@/agents/schedule';
 import type { ThoughtPlace } from '@/thoughts/content';
 
 /**
@@ -12,13 +13,20 @@ export interface ThoughtCandidate {
   agent: number;
   place: ThoughtPlace;
   distanceM: number;
+  /** What kind of person this is, when the caller knows. */
+  role?: Role;
 }
 
 export interface ThoughtSlot {
   agent: number;
   place: ThoughtPlace;
-  /** Index into the thought list for `place`. */
-  text: number;
+  /**
+   * The line itself, not an index into a list. A person's pool depends on the
+   * time of day as well as the place now, so an index taken at noon would
+   * point at a different line after five o'clock. Keeping the words is what
+   * lets a held thought stay put while the day moves under it.
+   */
+  text: string;
   /** When this thought was given, in seconds since the world started. */
   sinceS: number;
 }
@@ -26,8 +34,11 @@ export interface ThoughtSlot {
 export interface SelectOptions {
   max: number;
   holdS: number;
-  /** Chooses a thought for a place. Injected so this module stays pure. */
-  pick: (place: ThoughtPlace, agent: number) => number;
+  /**
+   * Chooses the line for a person. Injected so this module stays pure: the
+   * caller knows their role and the hour, and this module need not.
+   */
+  pick: (candidate: ThoughtCandidate) => string;
 }
 
 export function selectThoughts(
@@ -53,7 +64,7 @@ export function selectThoughts(
       kept.push({
         agent: slot.agent,
         place: candidate.place,
-        text: options.pick(candidate.place, slot.agent),
+        text: options.pick(candidate),
         sinceS: nowS,
       });
     } else {
@@ -69,7 +80,7 @@ export function selectThoughts(
     kept.push({
       agent: candidate.agent,
       place: candidate.place,
-      text: options.pick(candidate.place, candidate.agent),
+      text: options.pick(candidate),
       sinceS: nowS,
     });
   }
@@ -81,7 +92,7 @@ export function selectThoughts(
  * A steady choice per person and place, so the same person keeps the same
  * thought rather than flickering between them frame to frame.
  */
-export function steadyPick(agent: number, place: ThoughtPlace, count: number): number {
+export function steadyPick(agent: number, place: string, count: number): number {
   if (count <= 0) return 0;
   // Math.imul, not `*`. A 32-bit multiply done in doubles passes 2^53 once the
   // agent index is in the thousands, and the low bits round away: every person

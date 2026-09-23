@@ -611,7 +611,7 @@ export function createWorld({
       people.update(dtS, clock.hourOfDay, view);
       traffic.system.update(dtS, clock.hourOfDay, view);
       monsters?.update(dtS, view);
-      thoughts.update(dtS, view);
+      thoughts.update(dtS, view, clock.hourOfDay);
     },
     info: () =>
       `seed: ${seed}  water: ${terrain.water.kind}\n` +

@@ -29,6 +29,7 @@ import {
   isIndoors,
   roleAt,
   type Destination,
+  type Role,
 } from '@/agents/schedule';
 import type { Lot, LotIndex, LotUse } from '@/world/lots';
 import {
@@ -99,6 +100,8 @@ export interface NearbyPerson {
   distanceM: number;
   /** The lot this person is inside, or -1 when they are out of doors. */
   insideLot: number;
+  /** What kind of person they are: it decides half of what they think. */
+  role: Role;
 }
 
 /** Everything that changes when the world becomes a different era. */
@@ -460,6 +463,7 @@ export function createPeople(options: PeopleOptions): People {
         place: state === STATE.walking ? 'street' : destinationAt(pool.currentUse[i] ?? 0),
         distanceM,
         insideLot,
+        role: roleAt(pool.role[i] ?? 0),
       };
       let at = found.length;
       while (at > 0 && (found[at - 1]?.distanceM ?? 0) > distanceM) at--;

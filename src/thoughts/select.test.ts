@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { selectThoughts, steadyPick, type ThoughtCandidate } from './select';
 import { MODERN_THOUGHTS, THOUGHT_PLACES } from './content';
 
-const pick = (place: string, agent: number): number => (agent + place.length) % 7;
+const pick = (c: ThoughtCandidate): string => `${c.place}:${(c.agent + c.place.length) % 7}`;
 const options = { max: 6, holdS: 8, pick };
 
 function candidate(agent: number, distanceM: number, place: ThoughtCandidate['place'] = 'street'): ThoughtCandidate {

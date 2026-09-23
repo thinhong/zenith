@@ -2,9 +2,16 @@ import { Vector3, type PerspectiveCamera } from 'three';
 import type { NearbyPerson, People } from '@/agents/people';
 import type { ViewState } from '@/core/camera';
 import { DETAIL, detailFactor } from '@/state/altitude';
-import { MODERN_THOUGHTS, thoughtsFor, type ThoughtPlace, type ThoughtSet } from '@/thoughts/content';
+import {
+  MODERN_THOUGHTS,
+  thoughtPool,
+  timeOfDay,
+  type ThoughtSet,
+  type TimeOfDay,
+} from '@/thoughts/content';
+import { HUMAN_THOUGHTS } from '@/thoughts/human-content';
 import { placePill, type PlaceLimits } from '@/thoughts/place';
-import { selectThoughts, steadyPick, type ThoughtSlot } from '@/thoughts/select';
+import { selectThoughts, steadyPick, type ThoughtCandidate, type ThoughtSlot } from '@/thoughts/select';
 
 /**
  * The thoughts above people's heads, in the street band only.
@@ -71,7 +78,8 @@ export interface ThoughtStats {
 }
 
 export interface Thoughts {
-  update: (dtS: number, view: ViewState) => void;
+  /** `hourOfDay` decides which part of the day people are thinking in. */
+  update: (dtS: number, view: ViewState, hourOfDay: number) => void;
   stats: ThoughtStats;
   /** Swaps in another era's worries. Anything showing is dropped. */
   setThoughts: (next: ThoughtSet) => void;
@@ -114,8 +122,21 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
   let slots: ThoughtSlot[] = [];
   let elapsedS = 0;
 
-  const pick = (place: ThoughtPlace, agent: number): number =>
-    steadyPick(agent, place, thoughtsFor(set, place).length);
+  /** The part of the day the current frame is in, set at the top of update. */
+  let now: TimeOfDay = 'morning';
+
+  /**
+   * A line for one person, from their era and the shared human core, for
+   * where they are, who they are and when it is. The same person in the same
+   * context always gets the same line, so nobody's thought flickers.
+   */
+  const pick = (candidate: ThoughtCandidate): string => {
+    const role = candidate.role ?? 'office';
+    const pool = thoughtPool(set, { place: candidate.place, role, time: now }, HUMAN_THOUGHTS);
+    if (pool.length === 0) return '';
+    const key = `${candidate.place}|${role}|${now}`;
+    return pool[steadyPick(candidate.agent, key, pool.length)] ?? pool[0] ?? '';
+  };
 
   function hideAll(): void {
     for (const pill of pills) pill.style.opacity = '0';
@@ -129,7 +150,8 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
       slots = [];
       hideAll();
     },
-    update: (dtS, view) => {
+    update: (dtS, view, hourOfDay) => {
+      now = timeOfDay(hourOfDay);
       elapsedS += dtS;
       const strength = detailFactor(DETAIL.thoughts, view.altitudeM);
       if (strength <= 0.002) {
@@ -233,7 +255,7 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
         }
         placed.push({ x: spot.pillX, y: spot.pillY });
 
-        const text = thoughtsFor(set, slot.place)[slot.text] ?? '';
+        const text = slot.text;
         if (pill.textContent !== text) pill.textContent = text;
         const fadeIn = Math.min(1, (elapsedS - slot.sinceS) / THOUGHTS.fadeInS);
         pill.style.transform = `translate(-50%, -100%) translate(${spot.pillX.toFixed(1)}px, ${spot.pillY.toFixed(1)}px)`;
