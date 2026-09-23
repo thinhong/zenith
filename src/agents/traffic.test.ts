@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { pickNextEdge, trafficLoad } from './traffic';
-import { buildRoadGraph, createGraph, type DraftEdge, type Point } from '@/world/roads';
+import { MODERN_PLAN } from '@/world/eras/modern';
+import { planTown } from '@/world/plan';
+import { createGraph, type DraftEdge, type Point } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
 import { buildTerrain } from '@/world/terrain';
 
@@ -59,7 +61,7 @@ describe('pickNextEdge', () => {
   });
 
   it('always returns an edge that touches the node it is leaving', () => {
-    const city = buildRoadGraph(mulberry32(3), buildTerrain(mulberry32(3)));
+    const city = planTown(mulberry32(3), buildTerrain(mulberry32(3)), MODERN_PLAN).roads;
     for (let node = 0; node < city.nodes.length; node += 13) {
       const from = (city.adjacency[node] ?? [])[0] ?? -1;
       if (from < 0) continue;

@@ -2,8 +2,11 @@ import { smoothstep } from '@/state/altitude';
 import { AFTER_THOUGHTS } from '@/thoughts/after-content';
 import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
-import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile } from '@/world/lots';
-import { buildRoadGraph } from '@/world/roads';
+import { MODERN_PLAN } from '@/world/eras/modern';
+import type { Lot, LotProfile } from '@/world/lots';
+import { parcelSteps } from '@/world/parcels';
+import { planSteps, type PlanStyle, type Reserve } from '@/world/plan';
+import type { Point } from '@/world/roads';
 import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
@@ -151,22 +154,8 @@ const STREET_STYLE: StreetStyle = {
 };
 
 const AFTER_LOTS: LotProfile = {
-  /**
-   * The centre is cut into very few, very large plots and the edge into many
-   * small ones. That is what puts slender towers on wide podiums downtown and
-   * keeps the outskirts low, and it is the opposite of 2020, where the whole
-   * town was cut to roughly the same grain.
-   */
-  lotsPerBlock: (d) => {
-    const t = smoothstep(0.12, 0.6, d);
-    return { min: Math.round(1 + 6 * t), max: Math.round(2 + 11 * t) };
-  },
   // Slimmer than anything 2020 could stand up.
   maxAspect: 7.5,
-  minLotSideM: 3.5,
-  splitFloorM: 8,
-  setbackM: 1.6,
-  parkChance: (d) => 0.14 + 0.2 * smoothstep(0.3, 1, d),
   weights: (d) => {
     const centre = 1 - smoothstep(0.15, 0.55, d);
     return {
@@ -218,7 +207,12 @@ const SKYLINE = {
  * anything crosses the gaps between them, and whether the eye is given
  * somewhere to stop. 2020 has neither and 2300 now has both.
  */
-function skyline(rng: Rng, lots: readonly Lot[], cityRadiusM: number): Structure[] {
+function skyline(
+  rng: Rng,
+  lots: readonly Lot[],
+  ring: readonly Point[],
+  plaza: Reserve | undefined,
+): Structure[] {
   const out: Structure[] = [];
 
   // --- bridges between neighbouring towers ---------------------------------
@@ -254,39 +248,45 @@ function skyline(rng: Rng, lots: readonly Lot[], cityRadiusM: number): Structure
   }
 
   // --- a guideway above the ring road ---------------------------------------
-  const radius = cityRadiusM * 0.82;
-  const steps = Math.max(24, Math.round((Math.PI * 2 * radius) / SKYLINE.pierEveryM));
-  for (let i = 0; i < steps; i++) {
-    const a0 = (i / steps) * Math.PI * 2;
-    const a1 = ((i + 1) / steps) * Math.PI * 2;
-    const x0 = Math.cos(a0) * radius;
-    const z0 = Math.sin(a0) * radius;
-    const x1 = Math.cos(a1) * radius;
-    const z1 = Math.sin(a1) * radius;
-    const span = Math.hypot(x1 - x0, z1 - z0);
+  // It follows the ring boulevard, whatever shape the plan gave it, with a
+  // pier at every few samples.
+  let sinceLast: number = SKYLINE.pierEveryM;
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i];
+    const q = ring[(i + 1) % ring.length];
+    if (!p || !q) continue;
+    const span = Math.hypot(q.x - p.x, q.z - p.z);
     out.push({
       kind: 'box',
-      x: (x0 + x1) / 2,
+      x: (p.x + q.x) / 2,
       y: SKYLINE.railHeightM,
-      z: (z0 + z1) / 2,
+      z: (p.z + q.z) / 2,
       // A touch longer than the gap, so the segments meet rather than dot.
-      wM: span * 1.06,
+      wM: span * 1.08,
       hM: SKYLINE.railDeckM,
       dM: SKYLINE.railWidthM,
-      rotY: -Math.atan2(z1 - z0, x1 - x0),
+      rotY: -Math.atan2(q.z - p.z, q.x - p.x),
       colour: SKYLINE.railColour,
     });
+    sinceLast += span;
+    if (sinceLast < SKYLINE.pierEveryM) continue;
+    sinceLast = 0;
     out.push({
       kind: 'box',
-      x: x0,
+      x: p.x,
       y: 0,
-      z: z0,
+      z: p.z,
       wM: SKYLINE.pierWidthM,
       hM: SKYLINE.railHeightM,
       dM: SKYLINE.pierWidthM,
       rotY: 0,
       colour: SKYLINE.railColour,
     });
+  }
+
+  // The plaza the spire stands in, paved in the era's pale stone.
+  if (plaza) {
+    out.push({ kind: 'flat', x: plaza.x, y: 0.08, z: plaza.z, wM: plaza.wM, hM: 1, dM: plaza.dM, rotY: plaza.rotY, colour: 0xe4e9ea });
   }
 
   // --- one spire ------------------------------------------------------------
@@ -360,18 +360,28 @@ const PARK_STYLE: ParkStyle = {
   bench: 0xdfe6ea,
 };
 
+/**
+ * 2020's plan, deliberately: a road outlives everything built along it. The
+ * one change is the square in the middle, which is a paved plaza under the
+ * spire rather than a park.
+ */
+const AFTER_PLAN: PlanStyle = {
+  ...MODERN_PLAN,
+  square: MODERN_PLAN.square ? { ...MODERN_PLAN.square, lot: null } : null,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
-  const roads = buildRoadGraph(rng, terrain);
+  const plan = yield* planSteps(rng, terrain, AFTER_PLAN);
+  const roads = plan.roads;
   yield;
-  const blocks = buildBlocks(terrain);
-  yield;
-  const lots = buildLots(rng, terrain, blocks, avenueCorridors(roads), AFTER_LOTS);
+  // Larger plots on the same streets: slender towers on wide podiums.
+  const lots = yield* parcelSteps(rng, terrain, plan, AFTER_LOTS, { sizeScale: 1.08 });
   yield;
   const structures: Structure[] = buildRoofscape(rng, lots, ROOF_STYLE);
   yield;
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
   yield;
-  structures.push(...skyline(rng, lots, terrain.cityRadiusM));
+  structures.push(...skyline(rng, lots, plan.ring, plan.reserves.find((r) => r.lot === null)));
   yield;
   structures.push(...buildFacade(rng, lots, FACADE_STYLE));
   structures.push(...buildParks(lots, PARK_STYLE));

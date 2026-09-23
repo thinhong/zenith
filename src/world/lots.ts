@@ -1,39 +1,15 @@
 import { smoothstep } from '@/state/altitude';
-import { buildNodeIndex, ROADS, roadOptions, type RoadGraph, type RoadOptions } from '@/world/roads';
+import { buildNodeIndex, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
-import { isBuildable, type TerrainSpec } from '@/world/terrain';
 
 /**
- * City blocks cut into lots, each with a use and a height. Pure module: the
- * shapes are plain rectangles so the layout can be tested without a GPU
- * (AGENTS.md 3). world/buildings.ts turns these into instanced meshes.
+ * Lots: the plots buildings stand on, and what each one is for and how tall
+ * it is. Pure module: the shapes are plain rectangles so the choices can be
+ * tested without a GPU (AGENTS.md 3). world/parcels.ts places them along the
+ * streets the planner lays out, world/buildings.ts turns them into instanced
+ * meshes, and the lookups here are what the walkers use to find them.
  */
 export const LOTS = {
-  /** Gap between a block and the road that runs past it. */
-  blockInsetM: 2,
-  /**
-   * Space left around a building inside its lot. Small, because this is a
-   * street of tube houses: they crowd the pavement and share side walls.
-   */
-  setbackM: 1,
-  /**
-   * A tube house is about four metres across and fifteen deep, so the minimum
-   * is a narrow number, not a square one. Setting it at 5.5 quietly threw away
-   * the last split of every block: the splitter halves the longest side, so
-   * the final parts are narrow by construction, and they were all dropped.
-   */
-  minLotSideM: 3.5,
-  minLotsPerBlock: 6,
-  maxLotsPerBlock: 14,
-  /**
-   * A block stops splitting once both sides are shorter than this. Keep it at
-   * about twice `minLotSideM` plus the setbacks, so a split that happens is a
-   * split that survives.
-   */
-  splitFloorM: 8,
-  /** Chance a whole block is given over to a park, downtown and at the edge. */
-  parkChanceCentre: 0.05,
-  parkChanceEdge: 0.15,
   towerFromM: 48,
   slabFromM: 16,
 } as const;
@@ -56,28 +32,29 @@ export interface Lot extends Rect {
   style: BuildingStyle;
   /** 0..1 per lot. Picks the colour and seeds the window pattern. */
   jitter: number;
-}
-
-/** A strip of ground an avenue or the ring road runs through. */
-export interface Corridor {
-  ax: number;
-  az: number;
-  bx: number;
-  bz: number;
-  halfWidthM: number;
+  /**
+   * The lot's turn about its own centre, in the `Structure.rotY` convention.
+   * 0 for one laid square to the world, as the citadel's halls are. Lots put
+   * along a street are turned to face it (world/parcels.ts), and everything
+   * that stands on a lot turns with it (world/frame.ts).
+   */
+  rotY: number;
+  /** It faces a street across its local -z side: the side the door and the shopfront are on. */
+  street?: boolean;
+  /**
+   * How far a wall round the yard may stand from the building, in metres.
+   * 0 where the neighbours stand too close for a yard at all; unset means the
+   * old default.
+   */
+  yardM?: number;
 }
 
 /**
- * What an era wants its blocks cut into. The shapes stay here; the character
- * (how many lots, how tall, what they are for) lives in the era file.
+ * What an era builds on its lots. Where the lots go and how big they are is
+ * the plan's business (world/plan.ts ParcelStyle); the character (what they
+ * are for, how tall, in what style) lives here, in the era file.
  */
 export interface LotProfile {
-  /**
-   * How many lots a block is cut into, by distance from the centre. Downtown
-   * takes fewer and larger ones, so a tower has ground to stand on; the edge
-   * takes many narrow ones, which is a street of houses.
-   */
-  lotsPerBlock: (normalisedDistance: number) => { min: number; max: number };
   /**
    * The tallest a building may be for the width of its own plot, as a
    * multiple of its shorter side. Without this the small-lot rewrite put
@@ -85,95 +62,10 @@ export interface LotProfile {
    * pincushion.
    */
   maxAspect: number;
-  minLotSideM: number;
-  splitFloorM: number;
-  setbackM: number;
-  /** Chance a whole block is given over to a park, by distance from the centre. */
-  parkChance: (normalisedDistance: number) => number;
   /** Shares of each use, by distance from the centre. */
   weights: (normalisedDistance: number) => Record<Exclude<LotUse, 'water'>, number>;
   heightFor: (rng: Rng, use: LotUse, normalisedDistance: number) => number;
   style: (heightM: number) => BuildingStyle;
-}
-
-/** One block per grid cell whose four corners are all buildable. */
-export function buildBlocks(terrain: TerrainSpec, over: Partial<RoadOptions> = {}): Rect[] {
-  const shape = roadOptions(terrain, over);
-  const blocks: Rect[] = [];
-  const pitch = shape.pitchM;
-  const side = pitch - shape.streetWidthM - LOTS.blockInsetM * 2;
-  const half = Math.floor(shape.cityRadiusM / pitch);
-  for (let i = -half; i < half; i++) {
-    for (let j = -half; j < half; j++) {
-      const buildable =
-        isBuildable(terrain, i * pitch, j * pitch, ROADS.bankMarginM) &&
-        isBuildable(terrain, (i + 1) * pitch, j * pitch, ROADS.bankMarginM) &&
-        isBuildable(terrain, i * pitch, (j + 1) * pitch, ROADS.bankMarginM) &&
-        isBuildable(terrain, (i + 1) * pitch, (j + 1) * pitch, ROADS.bankMarginM);
-      if (!buildable) continue;
-      blocks.push({ x: (i + 0.5) * pitch, z: (j + 0.5) * pitch, wM: side, dM: side });
-    }
-  }
-  return blocks;
-}
-
-/** The avenues and the ring road cut across the grid, so they clear their own ground. */
-export function avenueCorridors(graph: RoadGraph): Corridor[] {
-  const corridors: Corridor[] = [];
-  for (const edge of graph.edges) {
-    if (edge.kind === 'street') continue;
-    const a = graph.nodes[edge.a];
-    const b = graph.nodes[edge.b];
-    if (!a || !b) continue;
-    corridors.push({
-      ax: a.x,
-      az: a.z,
-      bx: b.x,
-      bz: b.z,
-      halfWidthM: edge.widthM / 2 + LOTS.blockInsetM,
-    });
-  }
-  return corridors;
-}
-
-export function buildLots(
-  rng: Rng,
-  terrain: TerrainSpec,
-  blocks: readonly Rect[],
-  corridors: readonly Corridor[],
-  profile: LotProfile = MODERN_LOTS,
-  cityRadiusM: number = terrain.cityRadiusM,
-): Lot[] {
-  const lots: Lot[] = [];
-  for (const block of blocks) {
-    const blockDistance = Math.hypot(block.x, block.z) / cityRadiusM;
-    if (rng() < profile.parkChance(blockDistance)) {
-      if (!crossesCorridor(corridors, block)) {
-        lots.push(makeLot(lots.length, block, 'park', 0, rng(), profile));
-      }
-      continue;
-    }
-
-    const count = profile.lotsPerBlock(blockDistance);
-    const spread = count.max - count.min + 1;
-    const target = count.min + Math.floor(rng() * spread);
-    for (const part of splitRect(rng, block, target, profile.splitFloorM)) {
-      const wM = part.wM - profile.setbackM * 2;
-      const dM = part.dM - profile.setbackM * 2;
-      if (wM < profile.minLotSideM || dM < profile.minLotSideM) continue;
-      if (crossesCorridor(corridors, part)) continue;
-      const distance = Math.hypot(part.x, part.z) / cityRadiusM;
-      const use = pickUse(rng, distance, profile);
-      // A building cannot be taller than its own plot can carry.
-      const heightM = Math.min(
-        profile.heightFor(rng, use, distance),
-        Math.min(wM, dM) * profile.maxAspect,
-      );
-      lots.push(makeLot(lots.length, { ...part, wM, dM }, use, heightM, rng(), profile));
-    }
-  }
-  ensureTemple(rng, lots, cityRadiusM, profile);
-  return lots;
 }
 
 /**
@@ -193,20 +85,7 @@ export function useWeights(normalisedDistance: number): Record<Exclude<LotUse, '
 
 /** The modern era's own settings, and the default for anything that does not say. */
 export const MODERN_LOTS: LotProfile = {
-  lotsPerBlock: (d) => {
-    // Downtown blocks are cut into two or three plots; the edge into a dozen.
-    const t = smoothstep(0.15, 0.55, d);
-    return {
-      min: Math.round(2 + (LOTS.minLotsPerBlock - 2) * t),
-      max: Math.round(4 + (LOTS.maxLotsPerBlock - 4) * t),
-    };
-  },
   maxAspect: 4.2,
-  minLotSideM: LOTS.minLotSideM,
-  splitFloorM: LOTS.splitFloorM,
-  setbackM: LOTS.setbackM,
-  parkChance: (d) =>
-    LOTS.parkChanceCentre + (LOTS.parkChanceEdge - LOTS.parkChanceCentre) * smoothstep(0.3, 1, d),
   weights: useWeights,
   heightFor: modernHeight,
   style: styleFor,
@@ -218,28 +97,7 @@ export function styleFor(heightM: number): BuildingStyle {
   return 'low';
 }
 
-function makeLot(
-  id: number,
-  rect: Rect,
-  use: LotUse,
-  heightM: number,
-  jitter: number,
-  profile: LotProfile,
-): Lot {
-  return {
-    id,
-    x: rect.x,
-    z: rect.z,
-    wM: rect.wM,
-    dM: rect.dM,
-    use,
-    heightM,
-    style: profile.style(heightM),
-    jitter,
-  };
-}
-
-function pickUse(rng: Rng, normalisedDistance: number, profile: LotProfile): LotUse {
+export function pickUse(rng: Rng, normalisedDistance: number, profile: LotProfile): LotUse {
   const weights = profile.weights(normalisedDistance);
   const entries = Object.entries(weights) as [Exclude<LotUse, 'water'>, number][];
   let total = 0;
@@ -271,7 +129,7 @@ export function modernHeight(rng: Rng, use: LotUse, normalisedDistance: number):
 }
 
 /** Every city has somewhere to go and be quiet, whatever the weights rolled. */
-function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number, profile: LotProfile): void {
+export function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number, profile: LotProfile): void {
   if (lots.some((lot) => lot.use === 'temple')) return;
   let chosen: Lot | undefined;
   let bestDistance = Infinity;
@@ -287,71 +145,6 @@ function ensureTemple(rng: Rng, lots: Lot[], cityRadiusM: number, profile: LotPr
   chosen.use = 'temple';
   chosen.heightM = profile.heightFor(rng, 'temple', bestDistance / cityRadiusM);
   chosen.style = profile.style(chosen.heightM);
-}
-
-/** Splits the largest part in two until there are `target` of them. */
-function splitRect(rng: Rng, block: Rect, target: number, floorM: number): Rect[] {
-  const parts: Rect[] = [{ ...block }];
-  while (parts.length < target) {
-    let index = -1;
-    let biggest = -1;
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      if (!part || Math.min(part.wM, part.dM) < floorM) continue;
-      const area = part.wM * part.dM;
-      if (area > biggest) {
-        biggest = area;
-        index = i;
-      }
-    }
-    const part = index >= 0 ? parts[index] : undefined;
-    if (!part) break;
-    const f = range(rng, 0.38, 0.62);
-    if (part.wM >= part.dM) {
-      const first = part.wM * f;
-      const second = part.wM - first;
-      parts.splice(
-        index,
-        1,
-        { x: part.x - part.wM / 2 + first / 2, z: part.z, wM: first, dM: part.dM },
-        { x: part.x + part.wM / 2 - second / 2, z: part.z, wM: second, dM: part.dM },
-      );
-    } else {
-      const first = part.dM * f;
-      const second = part.dM - first;
-      parts.splice(
-        index,
-        1,
-        { x: part.x, z: part.z - part.dM / 2 + first / 2, wM: part.wM, dM: first },
-        { x: part.x, z: part.z + part.dM / 2 - second / 2, wM: part.wM, dM: second },
-      );
-    }
-  }
-  return parts;
-}
-
-function crossesCorridor(corridors: readonly Corridor[], rect: Rect): boolean {
-  const reach = Math.max(rect.wM, rect.dM) * 0.5;
-  for (const c of corridors) {
-    if (distanceToSegment(rect.x, rect.z, c.ax, c.az, c.bx, c.bz) < c.halfWidthM + reach) return true;
-  }
-  return false;
-}
-
-export function distanceToSegment(
-  px: number,
-  pz: number,
-  ax: number,
-  az: number,
-  bx: number,
-  bz: number,
-): number {
-  const dx = bx - ax;
-  const dz = bz - az;
-  const lengthSquared = dx * dx + dz * dz;
-  if (lengthSquared < 1e-9) return Math.hypot(px - ax, pz - az);
-  const t = Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / lengthSquared));
-  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -1,4 +1,5 @@
 import type { Structure } from '@/world/eras';
+import { directionToLocal, orientToFrame, toWorld } from '@/world/frame';
 import type { Lot } from '@/world/lots';
 import { mulberry32, range } from '@/world/seed';
 
@@ -73,9 +74,10 @@ export function spotInside(lot: Lot, phase: number): Spot {
   // off the walls without bunching them round the middle.
   const acrossM = lot.wM * 0.34 * (fract(phase * 3.77) * 2 - 1);
   const alongM = lot.dM * 0.34 * (fract(phase * 7.13) * 2 - 1);
+  const at = toWorld(lot, acrossM, alongM);
   return {
-    x: lot.x + acrossM,
-    z: lot.z + alongM,
+    x: at.x,
+    z: at.z,
     storey: Math.floor(fract(phase * 11.7) * storeysIn(lot.heightM)),
   };
 }
@@ -97,6 +99,7 @@ export const OUTDOOR_SPREAD = { market: 0.18, park: 0.38, temple: 0.22 } as cons
  */
 export function spotOutside(lot: Lot, phase: number, spread: number): Spot {
   const reach = spread * Math.min(lot.wM, lot.dM) * (0.35 + 0.65 * fract(phase * 5.31));
+  // A disc of spots, so the lot's turn does not matter.
   return { x: lot.x + Math.cos(phase) * reach, z: lot.z + Math.sin(phase) * reach, storey: 0 };
 }
 
@@ -136,9 +139,18 @@ function box(
 export function buildInterior(
   lot: Lot,
   style: InteriorStyle,
-  towardX = 0,
-  towardZ = 1,
+  worldTowardX = 0,
+  worldTowardZ = 1,
 ): Structure[] {
+  // Built square to the world about the lot's centre, with the viewer's
+  // direction brought into the same frame, and turned with the lot at the end.
+  const toward = directionToLocal(lot, worldTowardX, worldTowardZ);
+  const out = interiorSquare(lot, style, toward.x, toward.z);
+  orientToFrame(out, 0, lot);
+  return out;
+}
+
+function interiorSquare(lot: Lot, style: InteriorStyle, towardX: number, towardZ: number): Structure[] {
   const rng = mulberry32(lot.id * 2654435761 + 17);
   const out: Structure[] = [];
   const storeys = storeysIn(lot.heightM);

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { MODERN_PLAN } from './eras/modern';
+import { planTown } from './plan';
 import { mulberry32, range } from './seed';
-import { buildTerrain, centrelineOffsetAt } from './terrain';
+import { buildTerrain, centrelineOffsetAt, type TerrainSpec } from './terrain';
 import {
   buildNodeIndex,
-  buildRoadGraph,
   ROADS,
   createGraph,
   largestComponent,
@@ -12,7 +13,13 @@ import {
   shortestPath,
   type DraftEdge,
   type Point,
+  type RoadGraph,
 } from './roads';
+
+/** A town as the modern era lays one out. */
+function townOf(seed: number, terrain: TerrainSpec = buildTerrain(mulberry32(seed))): RoadGraph {
+  return planTown(mulberry32(seed), terrain, MODERN_PLAN).roads;
+}
 
 /** A 3 x 3 unit grid, 100 m apart, with every horizontal and vertical link. */
 function unitGrid(): { points: Point[]; edges: DraftEdge[] } {
@@ -90,51 +97,9 @@ describe('largestComponent', () => {
   });
 });
 
-describe('buildRoadGraph', () => {
-  it('is deterministic for the same seed', () => {
-    const a = buildRoadGraph(mulberry32(5), buildTerrain(mulberry32(5)));
-    const b = buildRoadGraph(mulberry32(5), buildTerrain(mulberry32(5)));
-    expect(a).toEqual(b);
-  });
-
-  it('builds one connected city for every seed tried', () => {
-    for (let seed = 1; seed <= 12; seed++) {
-      const terrain = buildTerrain(mulberry32(seed));
-      const graph = buildRoadGraph(mulberry32(seed), terrain);
-      expect(graph.nodes.length).toBeGreaterThan(150);
-      // one component: every node is reachable from node 0
-      const reached = shortestPath(graph, 0, graph.nodes.length - 1);
-      expect(reached.length).toBeGreaterThan(0);
-      for (let i = 1; i < graph.nodes.length; i += 17) {
-        expect(shortestPath(graph, 0, i).length).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  it('keeps every node inside the city and out of the water', () => {
-    const terrain = buildTerrain(mulberry32(2));
-    const graph = buildRoadGraph(mulberry32(2), terrain);
-    for (const node of graph.nodes) {
-      expect(Math.hypot(node.x, node.z)).toBeLessThanOrEqual(terrain.cityRadiusM + 1);
-    }
-  });
-
-  it('has a ring road and diagonal avenues, not just a grid', () => {
-    const graph = buildRoadGraph(mulberry32(4), buildTerrain(mulberry32(4)));
-    const kinds = new Set(graph.edges.map((e) => e.kind));
-    expect(kinds.has('ring')).toBe(true);
-    expect(kinds.has('avenue')).toBe(true);
-    const diagonal = graph.edges.filter((e) => {
-      const a = graph.nodes[e.a];
-      const b = graph.nodes[e.b];
-      if (!a || !b) return false;
-      return Math.abs(a.x - b.x) > 1 && Math.abs(a.z - b.z) > 1;
-    });
-    expect(diagonal.length).toBeGreaterThan(5);
-  });
-
+describe('nearestNode', () => {
   it('finds the node nearest a point', () => {
-    const graph = buildRoadGraph(mulberry32(1), buildTerrain(mulberry32(1)));
+    const graph = townOf(1);
     const id = nearestNode(graph, 0, 0);
     const node = graph.nodes[id];
     expect(node).toBeDefined();
@@ -154,7 +119,7 @@ describe('bridges', () => {
       const water = terrain.water;
       if (water.kind !== 'river') continue;
       riverSeeds++;
-      const graph = buildRoadGraph(mulberry32(seed), terrain);
+      const graph = townOf(seed, terrain);
       const side = (x: number, z: number): number =>
         x * water.nrmX + z * water.nrmZ - centrelineOffsetAt(water, x * water.dirX + z * water.dirZ);
       let bankA = 0;
@@ -177,12 +142,9 @@ describe('bridges', () => {
       const smaller = Math.min(bankA, bankB);
       if (smaller > 12) {
         expect(crossings.length).toBeGreaterThan(0);
-        // `maxBridges` counts bridges the grid is given. The ring road can
-        // also meet the river where it leaves the built-up part, and that is a
-        // ford or a bridge too, so it is counted separately.
-        const built = crossings.filter((e) => e.kind !== 'ring');
-        expect(built.length).toBeLessThanOrEqual(ROADS.maxBridges);
-        expect(crossings.length).toBeLessThanOrEqual(ROADS.maxBridges + 2);
+        // Every road stops at the bank (world/plan.ts), so what crosses is a
+        // bridge the planner chose to build.
+        expect(crossings.length).toBeLessThanOrEqual(ROADS.maxBridges);
       }
       expect(bankA + bankB).toBe(graph.nodes.length);
     }
@@ -192,8 +154,7 @@ describe('bridges', () => {
 
 describe('buildNodeIndex', () => {
   it('finds the same node as a full scan', () => {
-    const terrain = buildTerrain(mulberry32(4));
-    const graph = buildRoadGraph(mulberry32(4), terrain);
+    const graph = townOf(4);
     const index = buildNodeIndex(graph);
     const rng = mulberry32(99);
     for (let i = 0; i < 400; i++) {

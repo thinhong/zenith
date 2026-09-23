@@ -6,6 +6,7 @@ let nextId = 0;
 function lot(x: number, z: number, wM: number, dM: number, heightM: number): Lot {
   return {
     id: nextId++,
+    rotY: 0,
     x,
     z,
     wM,

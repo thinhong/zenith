@@ -1,4 +1,5 @@
 import type { Structure } from '@/world/eras';
+import { orientToFrame } from '@/world/frame';
 import type { Lot } from '@/world/lots';
 
 /**
@@ -73,7 +74,12 @@ export interface ParkPlan {
   plaza: { x: number; z: number; radiusM: number } | null;
 }
 
-/** The layout of one park, from its size and its jitter alone. */
+/**
+ * The layout of one park, from its size and its jitter alone, laid out square
+ * to the world about the lot's centre. A park on a turned lot is turned with
+ * it afterwards (world/frame.ts), so anything testing a point against this
+ * plan has to bring the point into the same unturned frame first.
+ */
 export function parkPlan(lot: Lot): ParkPlan {
   const lawnW = lot.wM - PARKS.edgeM * 2;
   const lawnD = lot.dM - PARKS.edgeM * 2;
@@ -129,22 +135,29 @@ export function buildParks(lots: readonly Lot[], style: ParkStyle): Structure[] 
   const out: Structure[] = [];
   for (const lot of lots) {
     if (lot.use !== 'park' || lot.heightM > 0) continue;
-    const lawn = pick(style.lawn, lot.jitter);
-    if (lawn !== undefined) {
-      out.push(flat(lot.x, lot.z, lot.wM - PARKS.edgeM * 2, lot.dM - PARKS.edgeM * 2, 0, PARKS.lawnY, lawn));
-    }
-    const plan = parkPlan(lot);
-    for (const path of plan.paths) {
-      out.push(flat(path.x, path.z, path.lengthM, path.widthM, path.rotY, PARKS.pathY, style.path));
-    }
-    const plaza = plan.plaza;
-    if (!plaza) continue;
-    out.push(round(plaza.x, plaza.z, plaza.radiusM, PARKS.plazaY - PARKS.plazaThickM, PARKS.plazaThickM, style.path));
-    centrePiece(out, style, plaza.x, plaza.z, plaza.radiusM, lot.jitter);
-    beds(out, style, plan, lot.jitter);
-    benches(out, style, plaza.x, plaza.z, plaza.radiusM, lot.jitter < 0.5);
+    const from = out.length;
+    onePark(out, lot, style);
+    // Laid out square to the world round the lot's centre, then turned with it.
+    orientToFrame(out, from, lot);
   }
   return out;
+}
+
+function onePark(out: Structure[], lot: Lot, style: ParkStyle): void {
+  const lawn = pick(style.lawn, lot.jitter);
+  if (lawn !== undefined) {
+    out.push(flat(lot.x, lot.z, lot.wM - PARKS.edgeM * 2, lot.dM - PARKS.edgeM * 2, 0, PARKS.lawnY, lawn));
+  }
+  const plan = parkPlan(lot);
+  for (const path of plan.paths) {
+    out.push(flat(path.x, path.z, path.lengthM, path.widthM, path.rotY, PARKS.pathY, style.path));
+  }
+  const plaza = plan.plaza;
+  if (!plaza) return;
+  out.push(round(plaza.x, plaza.z, plaza.radiusM, PARKS.plazaY - PARKS.plazaThickM, PARKS.plazaThickM, style.path));
+  centrePiece(out, style, plaza.x, plaza.z, plaza.radiusM, lot.jitter);
+  beds(out, style, plan, lot.jitter);
+  benches(out, style, plaza.x, plaza.z, plaza.radiusM, lot.jitter < 0.5);
 }
 
 function flat(x: number, z: number, wM: number, dM: number, rotY: number, y: number, colour: number): Structure {

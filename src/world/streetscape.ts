@@ -1,6 +1,7 @@
 import type { Structure } from '@/world/eras';
 import type { Lot } from '@/world/lots';
-import type { RoadGraph } from '@/world/roads';
+import { orientToFrame } from '@/world/frame';
+import { endClearM, PAVEMENT_M, roadChains, walkChain, type ChainStep, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 
 /**
@@ -68,8 +69,13 @@ const STREET = {
   parkStepM: 7.5,
   poleHeightM: 7,
   poleWidthM: 0.28,
-  /** How far out from the road centre the furniture sits, past the kerb. */
-  furnitureOffsetM: 3.4,
+  /**
+   * How far out from the carriageway's edge the furniture sits: on the
+   * pavement, a little in from its outer edge. It was 3.4, which was past the
+   * pavement and harmless while blocks were set well back; with lots built up
+   * to the pavement it put benches inside the shops.
+   */
+  furnitureOffsetM: 1.25,
   benchLengthM: 1.8,
   benchWidthM: 0.5,
   benchSeatM: 0.44,
@@ -111,31 +117,39 @@ export function buildStreetscape(
 function furniture(out: Structure[], rng: Rng, graph: RoadGraph, style: StreetStyle): void {
   const kit = style.furniture;
   if (kit.share <= 0) return;
-  for (const edge of graph.edges) {
-    const a = graph.nodes[edge.a];
-    const b = graph.nodes[edge.b];
-    if (!a || !b) continue;
-    const lengthM = Math.hypot(b.x - a.x, b.z - a.z);
-    if (lengthM < STREET.junctionClearM * 2 + kit.stepM) continue;
+  // Decided per street rather than per piece of one, or a curving street,
+  // which is many short pieces, would change its mind at every bend.
+  for (const chain of roadChains(graph)) {
     if (rng() >= kit.share) continue;
-
-    const dirX = (b.x - a.x) / lengthM;
-    const dirZ = (b.z - a.z) / lengthM;
-    const rotY = -Math.atan2(dirZ, dirX);
     const side = rng() < 0.5 ? -1 : 1;
-    const offset = edge.widthM / 2 + STREET.furnitureOffsetM;
-    const first = STREET.junctionClearM + range(rng, 0, kit.stepM);
-    const last = lengthM - STREET.junctionClearM;
-
-    for (let t = first; t < last; t += kit.stepM) {
-      const x = a.x + dirX * t - dirZ * offset * side;
-      const z = a.z + dirZ * t + dirX * offset * side;
-      const roll = rng();
-      if (roll < 0.34) bench(out, x, z, rotY, kit);
-      else if (roll < 0.62) planter(out, rng, x, z, rotY, kit);
-      else if (roll < 0.74) bollards(out, x, z, dirX, dirZ, rotY, kit);
-      // The rest of the time, nothing. An unbroken parade of benches is worse
-      // than a bare pavement: it reads as wallpaper.
+    let carry = range(rng, 0, kit.stepM);
+    for (const step of walkChain(graph, chain)) {
+      const edge = graph.edges[step.edge];
+      const a = graph.nodes[step.from];
+      const b = graph.nodes[step.to];
+      if (!edge || !a || !b) continue;
+      const lengthM = Math.hypot(b.x - a.x, b.z - a.z);
+      if (lengthM < 1e-6) continue;
+      const dirX = (b.x - a.x) / lengthM;
+      const dirZ = (b.z - a.z) / lengthM;
+      const rotY = -Math.atan2(dirZ, dirX);
+      // On the pavement, just in from its outer edge: the lots begin behind it.
+      const offset = edge.widthM / 2 + STREET.furnitureOffsetM;
+      const first = endClearM(graph, step.edge, step.from, STREET.junctionClearM, PAVEMENT_M);
+      const last = lengthM - endClearM(graph, step.edge, step.to, STREET.junctionClearM, PAVEMENT_M);
+      let t = first + carry;
+      for (; t < last; t += kit.stepM) {
+        const x = a.x + dirX * t - dirZ * offset * side;
+        const z = a.z + dirZ * t + dirX * offset * side;
+        const roll = rng();
+        if (roll < 0.34) bench(out, x, z, rotY, kit);
+        else if (roll < 0.62) planter(out, rng, x, z, rotY, kit);
+        else if (roll < 0.74) bollards(out, x, z, dirX, dirZ, rotY, kit);
+        // The rest of the time, nothing. An unbroken parade of benches is worse
+        // than a bare pavement: it reads as wallpaper.
+      }
+      // Keep the rhythm across a bend rather than restarting it.
+      carry = Math.max(0, t - lengthM);
     }
   }
 }
@@ -236,12 +250,18 @@ function yardWall(out: Structure[], rng: Rng, lot: Lot, style: StreetStyle): voi
   if (lot.heightM <= 0) return;
   if (lot.use !== 'home' && lot.use !== 'market' && lot.use !== 'temple') return;
   if (Math.min(lot.wM, lot.dM) < STREET.minYardSideM) return;
+  // A terrace shares its walls with the neighbours: there is no yard to wall.
+  const yardM = lot.yardM ?? STREET.yardM;
+  if (yardM < 0.5) return;
   if (rng() >= style.wallShare) return;
 
-  const wM = lot.wM + STREET.yardM * 2;
-  const dM = lot.dM + STREET.yardM * 2;
+  const from = out.length;
+  const wM = lot.wM + yardM * 2;
+  const dM = lot.dM + yardM * 2;
   const colour = pick(style.wallColours, lot.jitter);
-  const open = rng() < STREET.gateShare ? Math.floor(rng() * 4) : -1;
+  // The gate is on the street, when there is one to face.
+  const roll = rng();
+  const open = lot.street === true ? 0 : roll < STREET.gateShare ? Math.floor(rng() * 4) : -1;
   const sides = [
     { x: lot.x, z: lot.z - dM / 2, wM, dM: STREET.wallThicknessM },
     { x: lot.x, z: lot.z + dM / 2, wM, dM: STREET.wallThicknessM },
@@ -264,59 +284,78 @@ function yardWall(out: Structure[], rng: Rng, lot: Lot, style: StreetStyle): voi
       colour,
     });
   }
+  orientToFrame(out, from, lot);
 }
 
 /** Vehicles standing along the kerb, and a pole here and there. */
 function kerb(out: Structure[], rng: Rng, graph: RoadGraph, style: StreetStyle): void {
-  for (const edge of graph.edges) {
-    const a = graph.nodes[edge.a];
-    const b = graph.nodes[edge.b];
-    if (!a || !b) continue;
-    const lengthM = Math.hypot(b.x - a.x, b.z - a.z);
-    if (lengthM < STREET.junctionClearM * 2 + STREET.parkStepM) continue;
-
-    if (rng() < style.poleShare) {
-      const t = range(rng, 0.2, 0.8);
-      const offset = edge.widthM / 2 + 1.1;
-      const dirX = (b.x - a.x) / lengthM;
-      const dirZ = (b.z - a.z) / lengthM;
-      const side = rng() < 0.5 ? -1 : 1;
-      out.push({
-        kind: 'box',
-        x: a.x + dirX * lengthM * t - dirZ * offset * side,
-        y: 0,
-        z: a.z + dirZ * lengthM * t + dirX * offset * side,
-        wM: STREET.poleWidthM,
-        hM: STREET.poleHeightM,
-        dM: STREET.poleWidthM,
-        rotY: 0,
-        colour: style.poleColour,
-      });
+  for (const chain of roadChains(graph)) {
+    const parked = rng() < style.parkedShare;
+    const parkSide = rng() < 0.5 ? -1 : 1;
+    for (const step of walkChain(graph, chain)) {
+      kerbPiece(out, rng, graph, style, step, parked, parkSide);
     }
+  }
+}
 
-    if (rng() >= style.parkedShare) continue;
+function kerbPiece(
+  out: Structure[],
+  rng: Rng,
+  graph: RoadGraph,
+  style: StreetStyle,
+  step: ChainStep,
+  parked: boolean,
+  parkSide: number,
+): void {
+  const edge = graph.edges[step.edge];
+  const a = graph.nodes[step.from];
+  const b = graph.nodes[step.to];
+  if (!edge || !a || !b) return;
+  const lengthM = Math.hypot(b.x - a.x, b.z - a.z);
+  if (lengthM < 1) return;
+
+  // A pole every forty metres or so, however the street is cut into pieces.
+  if (rng() < style.poleShare * Math.min(1, lengthM / 40)) {
+    const t = range(rng, 0.2, 0.8);
+    const offset = edge.widthM / 2 + 1.1;
     const dirX = (b.x - a.x) / lengthM;
     const dirZ = (b.z - a.z) / lengthM;
-    // Local +x runs along the vehicle, so the heading is negated the same way
-    // world/instanced.ts does it for the moving ones.
-    const rotY = -Math.atan2(dirZ, dirX);
     const side = rng() < 0.5 ? -1 : 1;
-    const offset = edge.widthM / 2 - style.parked.widthM * 0.6;
-    const first = STREET.junctionClearM + range(rng, 0, STREET.parkStepM);
-    const last = lengthM - STREET.junctionClearM;
-    for (let t = first; t < last; t += STREET.parkStepM) {
-      if (rng() < 0.45) continue;
-      out.push({
-        kind: 'box',
-        x: a.x + dirX * t - dirZ * offset * side,
-        y: 0,
-        z: a.z + dirZ * t + dirX * offset * side,
-        wM: style.parked.lengthM,
-        hM: style.parked.heightM,
-        dM: style.parked.widthM,
-        rotY,
-        colour: pick(style.parked.colours, rng()),
-      });
-    }
+    out.push({
+      kind: 'box',
+      x: a.x + dirX * lengthM * t - dirZ * offset * side,
+      y: 0,
+      z: a.z + dirZ * lengthM * t + dirX * offset * side,
+      wM: STREET.poleWidthM,
+      hM: STREET.poleHeightM,
+      dM: STREET.poleWidthM,
+      rotY: 0,
+      colour: style.poleColour,
+    });
+  }
+
+  if (!parked) return;
+  const dirX = (b.x - a.x) / lengthM;
+  const dirZ = (b.z - a.z) / lengthM;
+  // Local +x runs along the vehicle, so the heading is negated the same way
+  // world/instanced.ts does it for the moving ones.
+  const rotY = -Math.atan2(dirZ, dirX);
+  const side = parkSide;
+  const offset = edge.widthM / 2 - style.parked.widthM * 0.6;
+  const first = endClearM(graph, step.edge, step.from, STREET.junctionClearM, 1) + range(rng, 0, STREET.parkStepM * 0.5);
+  const last = lengthM - endClearM(graph, step.edge, step.to, STREET.junctionClearM, 1);
+  for (let t = first; t < last; t += STREET.parkStepM) {
+    if (rng() < 0.45) continue;
+    out.push({
+      kind: 'box',
+      x: a.x + dirX * t - dirZ * offset * side,
+      y: 0,
+      z: a.z + dirZ * t + dirX * offset * side,
+      wM: style.parked.lengthM,
+      hM: style.parked.heightM,
+      dM: style.parked.widthM,
+      rotY,
+      colour: pick(style.parked.colours, rng()),
+    });
   }
 }

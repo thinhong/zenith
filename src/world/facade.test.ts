@@ -25,7 +25,7 @@ const STYLE: FacadeStyle = {
 
 let nextId = 0;
 function lot(use: LotUse, heightM: number, wM = 14, dM = 10): Lot {
-  return { id: nextId++, x: 30, z: -20, wM, dM, heightM, use, jitter: 0.3, style: 'slab' };
+  return { id: nextId++, x: 30, z: -20, wM, dM, rotY: 0, heightM, use, jitter: 0.3, style: 'slab' };
 }
 
 /** The footprint a lot's own wall box occupies, plus how far trim may stick out. */

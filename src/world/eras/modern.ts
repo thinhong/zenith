@@ -1,9 +1,10 @@
 import { MODERN_THOUGHTS } from '@/thoughts/content';
 import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, VehicleProfile } from '@/world/eras';
-import { avenueCorridors, buildBlocks, buildLots, MODERN_LOTS } from '@/world/lots';
-import { buildRoadGraph } from '@/world/roads';
+import { MODERN_LOTS } from '@/world/lots';
+import { parcelSteps } from '@/world/parcels';
 import { buildParks, type ParkStyle } from '@/world/parks';
+import { planSteps, type ParcelStyle, type PlanStyle } from '@/world/plan';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import { buildFacade, type FacadeStyle } from '@/world/facade';
@@ -11,10 +12,12 @@ import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
 
 /**
- * The city the viewer lives in: a grid with a ring road and three diagonal
- * avenues, towers downtown, homes at the edge. This is the era M1 and M2 were
- * built against; nothing here is new, it has only moved out of the systems and
- * into one place.
+ * The city the viewer lives in: a centre of towers round a square, a ring
+ * boulevard where the old walls would have been, main roads out through the
+ * country, and between them districts of every age: an old quarter of tube
+ * houses on winding lanes, planned grids lined up on the road they grew from,
+ * estates of large blocks, suburbs of closes. The plan is `MODERN_PLAN`; 2300
+ * is built on the same one.
  */
 /**
  * A real city from six hundred metres. Two things matter and pull against each
@@ -189,12 +192,169 @@ const PARK_STYLE: ParkStyle = {
   bench: 0x7a5a3c,
 };
 
+/** Tube houses: a shopfront wide, built back to back until the block is full. */
+const TUBE: ParcelStyle = {
+  frontM: [4.2, 7],
+  depthM: [12, 18],
+  setbackM: 0.6,
+  gapM: [0, 0.4],
+  fill: 0.97,
+  annexChance: 0.25,
+  backfill: 0.9,
+};
+/** Shops and flats of three to eight storeys, the stuff of a planned grid. */
+const MID: ParcelStyle = {
+  frontM: [7, 13],
+  depthM: [13, 19],
+  setbackM: 1.2,
+  gapM: [0.3, 1.2],
+  fill: 0.96,
+  annexChance: 0.2,
+  backfill: 0.85,
+};
+/** Slabs and yards on the big blocks. */
+const LARGE: ParcelStyle = {
+  frontM: [14, 26],
+  depthM: [15, 24],
+  setbackM: 2.5,
+  gapM: [1, 2.5],
+  fill: 0.94,
+  annexChance: 0.1,
+  backfill: 0.8,
+};
+/** Detached houses with gardens, which the backs are left as. */
+const HOUSE: ParcelStyle = {
+  frontM: [10, 14],
+  depthM: [9, 13],
+  setbackM: 3,
+  gapM: [2, 4.5],
+  fill: 0.92,
+  annexChance: 0.35,
+  backfill: 0.15,
+};
+/** Towers on their own plots, downtown. */
+const TOWER: ParcelStyle = {
+  frontM: [20, 32],
+  depthM: [20, 30],
+  setbackM: 2,
+  gapM: [1.5, 4],
+  fill: 0.97,
+  annexChance: 0,
+  backfill: 0.7,
+};
+/** Farmhouses strung out along the country roads. */
+const FARM: ParcelStyle = {
+  frontM: [12, 18],
+  depthM: [11, 15],
+  setbackM: 4,
+  gapM: [16, 50],
+  fill: 0.55,
+  annexChance: 0.5,
+  backfill: 0,
+};
+
+/**
+ * How 2020 is laid out (world/plan.ts). The centre is a tight grid of towers
+ * round a square, inside a ring boulevard. Five main roads leave it, bending
+ * a little, and run on into the country. Each wedge between two of them is
+ * split by a collector street into two districts, each chosen from the four
+ * kinds below and each lined up on the main road beside it, which is why two
+ * districts meet at an angle along every collector.
+ */
+export const MODERN_PLAN: PlanStyle = {
+  outline: { share: 0.92, wobble: 0.12, fingerM: 60, fingerRad: 0.13 },
+  core: {
+    radiusAt: (angle) => 112 * (1 + 0.1 * Math.sin(3 * angle + 0.6) + 0.06 * Math.sin(5 * angle - 1.1)),
+    pattern: 'grid',
+    pitchM: [44, 52],
+    acrossM: [46, 56],
+    streetM: 10,
+    warpM: 1.5,
+    warpScaleM: 200,
+    turnRad: null,
+    dropShare: 0.06,
+    parkChance: 0.06,
+    parcel: TOWER,
+  },
+  ring: { offsetM: 0, widthM: 15, kind: 'ring' },
+  arterials: { count: 5, widthM: 14, countryWidthM: 8, wanderRad: 0.1, reachM: 120 },
+  collectorM: 10,
+  districts: [
+    {
+      name: 'old quarter',
+      weight: 1,
+      pitchM: [26, 34],
+      acrossM: [30, 38],
+      grade: 0.3,
+      streetM: 6.5,
+      warpM: 8,
+      warpScaleM: 60,
+      dropShare: 0.12,
+      deadEndShare: 0.1,
+      closeShare: 0,
+      skewRad: 0.35,
+      parkChance: 0.03,
+      parcel: TUBE,
+    },
+    {
+      name: 'grid',
+      weight: 1.4,
+      pitchM: [38, 48],
+      acrossM: [44, 54],
+      grade: 0.5,
+      streetM: 8,
+      warpM: 1.5,
+      warpScaleM: 220,
+      dropShare: 0.06,
+      deadEndShare: 0,
+      closeShare: 0,
+      skewRad: 0.12,
+      parkChance: 0.07,
+      parcel: MID,
+    },
+    {
+      name: 'estates',
+      weight: 0.8,
+      pitchM: [66, 86],
+      acrossM: [62, 80],
+      grade: 0.3,
+      streetM: 10,
+      warpM: 3,
+      warpScaleM: 160,
+      dropShare: 0.1,
+      deadEndShare: 0,
+      closeShare: 0.2,
+      skewRad: 0.25,
+      parkChance: 0.12,
+      parcel: LARGE,
+    },
+    {
+      name: 'suburb',
+      weight: 1,
+      pitchM: [90, 130],
+      acrossM: [46, 56],
+      grade: 0.3,
+      streetM: 7,
+      warpM: 14,
+      warpScaleM: 110,
+      dropShare: 0.08,
+      deadEndShare: 0.4,
+      closeShare: 0.4,
+      skewRad: 0.3,
+      parkChance: 0.08,
+      parcel: HOUSE,
+    },
+  ],
+  shoreRoad: { offsetM: 17, widthM: 12 },
+  ribbon: { reachM: 90, parcel: FARM },
+  square: { wM: 42, dM: 42, lot: 'park' },
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
-  const roads = buildRoadGraph(rng, terrain);
+  const plan = yield* planSteps(rng, terrain, MODERN_PLAN);
+  const roads = plan.roads;
   yield;
-  const blocks = buildBlocks(terrain);
-  yield;
-  const lots = buildLots(rng, terrain, blocks, avenueCorridors(roads), MODERN_LOTS);
+  const lots = yield* parcelSteps(rng, terrain, plan, MODERN_LOTS);
   yield;
   const structures = buildRoofscape(rng, lots, ROOF_STYLE);
   yield;

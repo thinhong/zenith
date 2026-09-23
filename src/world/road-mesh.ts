@@ -2,6 +2,7 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   Color,
   Group,
   InstancedMesh,
@@ -25,7 +26,8 @@ import { CAMERA_FOV_DEG } from '@/core/camera';
 import { cloudShadow } from '@/world/atmosphere';
 import { LAYER_Y } from '@/world/ground';
 import type { Mark } from '@/world/markings';
-import type { RoadGraph } from '@/world/roads';
+import { writeInstanceMatrix } from '@/world/instanced';
+import { degreeOf, endClearM, PAVEMENT_M, type RoadGraph } from '@/world/roads';
 
 /**
  * Every road in one InstancedMesh: a flat quad per edge, plus a square at each
@@ -39,12 +41,6 @@ function roadMaterial(colour: number): MeshLambertNodeMaterial {
   return material;
 }
 
-/**
- * How far the pavement reaches past the kerb, in metres. It is drawn as one
- * wider quad under the road rather than as two strips beside it, so junctions
- * and bridges take care of themselves.
- */
-export const PAVEMENT_M = 2.2;
 
 /** How far the kerb stands above the carriageway, in metres. */
 export const KERB_M = 0.16;
@@ -57,6 +53,22 @@ export const KERB_WIDTH_M = 0.45;
  * well under the kerb, which stands 0.16 m proud of the pavement below.
  */
 export const MARK_RISE_M = 0.03;
+
+export const ROAD_LOOK = {
+  /** A dead-end street ends in a turning space this much wider than itself. */
+  turningCircle: 1.5,
+  /**
+   * Only a street at least this wide gets one. A lane too narrow for a car
+   * was never meant to turn one, and just stops: a bulb at the end of every
+   * lane in 1800 read as a row of little round plazas.
+   */
+  turningFromM: 6,
+  /**
+   * Drawing order among the transparent layers. The sea's banks go first
+   * (ground.ts, -1), then everything here from the bottom up.
+   */
+  order: { pavement: 1, road: 2, kerb: 3, paint: 4 },
+} as const;
 
 /** Twice the tangent of half the camera's vertical field of view. */
 const VIEW_SPAN = 2 * Math.tan((CAMERA_FOV_DEG / 2) * (Math.PI / 180));
@@ -100,15 +112,16 @@ export function createRoads(
 ): Roads {
   const group = new Group();
   group.name = 'roads';
-  const pavement = layer(graph, pavementColour, PAVEMENT_M, LAYER_Y.pavement, 'pavement', 0);
-  const road = layer(graph, colour, 0, LAYER_Y.road, 'carriageway', 0);
+  const pavement = layer(graph, pavementColour, PAVEMENT_M, LAYER_Y.pavement, 'pavement', ROAD_LOOK.order.pavement);
+  const road = layer(graph, colour, 0, LAYER_Y.road, 'carriageway', ROAD_LOOK.order.road);
   // And a raised line where the pavement meets the carriageway. Two thin
   // strips per edge rather than a raised slab: a slab the width of the
   // pavement would swallow the carriageway drawn inside it, and the thing that
   // gives a street its depth is the shadow along the kerb, not the step.
   const kerbs = kerbMesh(graph, pavementColour);
+  kerbs.renderOrder = ROAD_LOOK.order.kerb;
   const markings = markingMesh(marks, lit);
-  group.add(pavement, road, kerbs, markings.mesh);
+  group.add(...pavement.meshes, ...road.meshes, kerbs, markings.mesh);
   return {
     group,
     setOpacity: (value) => {
@@ -217,42 +230,43 @@ function markingMesh(marks: readonly Mark[], lit: boolean): Markings {
   // After every road layer, of both eras. Transparent things are sorted by
   // the distance to the centre of their bounds, and the centre of the paint is
   // not the centre of the tarmac, so left to that the carriageway was drawn
-  // over its own markings from some angles and they vanished. The roads are
-  // the only other transparent things in the world, so this costs nothing.
-  mesh.renderOrder = 1;
+  // over its own markings from some angles and they vanished.
+  mesh.renderOrder = ROAD_LOOK.order.paint;
   // Paint has no thickness to throw a shadow with, and a shadow pass would
   // widen it by the distance to the light rather than to the eye.
   mesh.userData.castsNoShadow = true;
   return { mesh, opacity, glow };
 }
 
+/**
+ * One layer of the road surface: a quad along every edge and a disc at every
+ * node, sharing one material.
+ *
+ * The node used to get an axis-aligned square the width of the road, which
+ * was right for a grid that ran north-south and wrong for everything else: on
+ * a road at thirty degrees its corners stuck out past both kerbs like a
+ * diamond. A disc is the same from every direction. At a bend it fills the
+ * wedge the two straight pieces leave on the outside; at a junction it covers
+ * the middle; at a dead end it is the turning circle, a little wider than the
+ * street, which is what the end of a close actually is.
+ */
 function layer(
   graph: RoadGraph,
   colour: number,
   growM: number,
   y: number,
   name: string,
-  _riseM: number,
-): InstancedMesh<BufferGeometry, MeshLambertNodeMaterial> {
-  const geometry: BufferGeometry = flatSlab();
+  order: number,
+): { meshes: InstancedMesh[]; material: MeshLambertNodeMaterial } {
+  // Transparent so two eras can cross-fade over one another.
+  const material = roadMaterial(colour);
+  const quads = new InstancedMesh(flatSlab(), material, Math.max(graph.edges.length, 1));
+  quads.name = name;
+  const discs = new InstancedMesh(discGeometry(), material, Math.max(graph.nodes.length, 1));
+  discs.name = `${name}-junctions`;
 
-  const count = graph.edges.length + graph.nodes.length;
-  const mesh = new InstancedMesh(
-    geometry,
-    // Transparent so two eras can cross-fade over one another.
-    roadMaterial(colour),
-    Math.max(count, 1),
-  );
-  mesh.name = name;
-  mesh.count = count;
-
-  const matrix = new Matrix4();
-  const quaternion = new Quaternion();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const up = new Vector3(0, 1, 0);
+  const matrices = quads.instanceMatrix.array as Float32Array;
   let i = 0;
-
   for (const edge of graph.edges) {
     const a = graph.nodes[edge.a];
     const b = graph.nodes[edge.b];
@@ -261,32 +275,60 @@ function layer(
     const dz = b.z - a.z;
     const length = Math.hypot(dx, dz);
     if (length < 1e-6) continue;
-    position.set((a.x + b.x) / 2, y, (a.z + b.z) / 2);
-    // Local +x runs along the edge after a Y rotation of atan2(-dz, dx).
-    quaternion.setFromAxisAngle(up, Math.atan2(-dz, dx));
-    // Overrun by the road width so the quad reaches under the junction square.
-    scale.set(length + edge.widthM + growM * 2, 1, edge.widthM + growM * 2);
-    mesh.setMatrixAt(i++, matrix.compose(position, quaternion, scale));
+    writeInstanceMatrix(
+      matrices,
+      i++,
+      (a.x + b.x) / 2,
+      y,
+      (a.z + b.z) / 2,
+      -Math.atan2(dz, dx),
+      length,
+      1,
+      edge.widthM + growM * 2,
+    );
   }
+  quads.count = i;
 
-  const junctionWidth = new Float64Array(graph.nodes.length);
+  const widest = new Float64Array(graph.nodes.length);
+  const kindAt: string[] = [];
   for (const edge of graph.edges) {
-    junctionWidth[edge.a] = Math.max(junctionWidth[edge.a] ?? 0, edge.widthM);
-    junctionWidth[edge.b] = Math.max(junctionWidth[edge.b] ?? 0, edge.widthM);
+    for (const node of [edge.a, edge.b]) {
+      if (edge.widthM > (widest[node] ?? 0)) {
+        widest[node] = edge.widthM;
+        kindAt[node] = edge.kind;
+      }
+    }
   }
-  quaternion.identity();
+  const discMatrices = discs.instanceMatrix.array as Float32Array;
+  let j = 0;
   for (const node of graph.nodes) {
-    const width = junctionWidth[node.id] ?? 0;
+    const width = widest[node.id] ?? 0;
     if (width <= 0) continue;
-    position.set(node.x, y, node.z);
-    scale.set(width + growM * 2, 1, width + growM * 2);
-    mesh.setMatrixAt(i++, matrix.compose(position, quaternion, scale));
+    const deadEnd = degreeOf(graph, node.id) === 1;
+    const turns = deadEnd && kindAt[node.id] === 'street' && width >= ROAD_LOOK.turningFromM;
+    const bulb = turns ? ROAD_LOOK.turningCircle : 1;
+    const diameter = width * bulb + growM * 2;
+    writeInstanceMatrix(discMatrices, j++, node.x, y, node.z, 0, diameter, 1, diameter);
   }
+  discs.count = j;
 
-  mesh.count = i;
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.frustumCulled = false;
-  return mesh;
+  for (const mesh of [quads, discs]) {
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    // Every road layer is transparent, so three sorts them by the distance to
+    // the middle of their bounds, and the middle of the discs is not the
+    // middle of the quads. An explicit order keeps pavement under carriageway
+    // under kerb under paint from every angle.
+    mesh.renderOrder = order;
+  }
+  return { meshes: [quads, discs], material };
+}
+
+/** A flat disc, one metre across, facing up. */
+function discGeometry(): BufferGeometry {
+  const disc = new CircleGeometry(0.5, 20);
+  disc.rotateX(-Math.PI / 2);
+  return disc;
 }
 
 function flatSlab(): BufferGeometry {
@@ -312,7 +354,7 @@ function kerbMesh(
   const up = new Vector3(0, 1, 0);
   let i = 0;
 
-  for (const edge of graph.edges) {
+  for (const [index, edge] of graph.edges.entries()) {
     const a = graph.nodes[edge.a];
     const b = graph.nodes[edge.b];
     if (!a || !b) continue;
@@ -322,12 +364,19 @@ function kerbMesh(
     if (length < 1e-6) continue;
     const dirX = dx / length;
     const dirZ = dz / length;
+    // Stopped where the crossing road's carriageway begins. Run to the middle
+    // of the junction, as they were, each kerb drew a line straight across
+    // the road it met.
+    const from = endClearM(graph, index, edge.a, 0, 0);
+    const to = length - endClearM(graph, index, edge.b, 0, 0);
+    if (to - from < 0.5) continue;
+    const mid = (from + to) / 2;
     const offset = edge.widthM / 2 + KERB_WIDTH_M / 2;
     quaternion.setFromAxisAngle(up, Math.atan2(-dz, dx));
-    scale.set(length, KERB_M, KERB_WIDTH_M);
+    scale.set(to - from, KERB_M, KERB_WIDTH_M);
     for (const side of [-1, 1]) {
-      const cx = (a.x + b.x) / 2 - dirZ * offset * side;
-      const cz = (a.z + b.z) / 2 + dirX * offset * side;
+      const cx = a.x + dirX * mid - dirZ * offset * side;
+      const cz = a.z + dirZ * mid + dirX * offset * side;
       position.set(cx, LAYER_Y.pavement, cz);
       mesh.setMatrixAt(i++, matrix.compose(position, quaternion, scale));
     }

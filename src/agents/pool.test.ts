@@ -11,15 +11,20 @@ import {
   STATE,
 } from './pool';
 import { ROLES } from './schedule';
-import { avenueCorridors, buildBlocks, buildLotIndex, buildLots, lotsByUse } from '@/world/lots';
-import { buildRoadGraph } from '@/world/roads';
+import { MODERN_PLAN } from '@/world/eras/modern';
+import { toLocal } from '@/world/frame';
+import { buildLotIndex, lotsByUse, MODERN_LOTS } from '@/world/lots';
+import { placeParcels } from '@/world/parcels';
+import { planTown } from '@/world/plan';
 import { mulberry32 } from '@/world/seed';
 import { buildTerrain } from '@/world/terrain';
 
 function city(seed: number) {
   const terrain = buildTerrain(mulberry32(seed));
-  const graph = buildRoadGraph(mulberry32(seed), terrain);
-  const lots = buildLots(mulberry32(seed), terrain, buildBlocks(terrain), avenueCorridors(graph));
+  const rng = mulberry32(seed);
+  const plan = planTown(rng, terrain, MODERN_PLAN);
+  const graph = plan.roads;
+  const lots = placeParcels(rng, terrain, plan, MODERN_LOTS);
   return { terrain, graph, lots, byUse: lotsByUse(lots), lotIndex: buildLotIndex(lots) };
 }
 
@@ -94,11 +99,13 @@ describe('populate', () => {
       const where = lots[pool.targetLot[i] ?? 0];
       expect(where).toBeDefined();
       if (!where) continue;
-      // Inside the footprint, wherever in it they are. Positions live in a
+      // Inside the footprint, wherever in it they are, measured in the lot's
+      // own frame because a lot faces its street. Positions live in a
       // Float32Array, so a centimetre is the honest tolerance at the far edge
       // of the city.
-      expect(Math.abs(agentX(pool, i) - where.x)).toBeLessThan(where.wM / 2 + 0.01);
-      expect(Math.abs(agentZ(pool, i) - where.z)).toBeLessThan(where.dM / 2 + 0.01);
+      const local = toLocal(where, agentX(pool, i), agentZ(pool, i));
+      expect(Math.abs(local.x)).toBeLessThan(where.wM / 2 + 0.01);
+      expect(Math.abs(local.z)).toBeLessThan(where.dM / 2 + 0.01);
       if (Math.hypot(agentX(pool, i) - where.x, agentZ(pool, i) - where.z) > 0.4) offCentre++;
     }
     // And spread across the floor rather than stacked on its centre, which is

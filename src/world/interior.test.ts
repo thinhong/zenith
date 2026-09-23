@@ -4,6 +4,7 @@ import type { Lot } from '@/world/lots';
 describe('spotInside', () => {
   const lot: Lot = {
     id: 3,
+    rotY: 0,
     x: 40,
     z: -20,
     wM: 12,
@@ -58,6 +59,7 @@ describe('spotInside', () => {
 describe('spotOutside', () => {
   const square: Lot = {
     id: 9,
+    rotY: 0,
     x: -30,
     z: 15,
     wM: 20,

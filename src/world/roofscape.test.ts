@@ -21,6 +21,7 @@ const STYLE: RoofStyle = {
 function lot(over: Partial<Lot> = {}): Lot {
   return {
     id: 0,
+    rotY: 0,
     x: 0,
     z: 0,
     wM: 20,

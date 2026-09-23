@@ -1,4 +1,5 @@
 import type { Structure } from '@/world/eras';
+import { orientToFrame } from '@/world/frame';
 import type { Lot } from '@/world/lots';
 import { range, type Rng } from '@/world/seed';
 
@@ -121,10 +122,15 @@ export function buildRoofscape(rng: Rng, lots: readonly Lot[], style: RoofStyle)
     if (style.crowns && lot.heightM >= ROOFS.crownFromM && rng() < ROOFS.crownShare) {
       crown(out, rng, lot, style);
     }
-    if (lot.heightM <= style.pitchedMaxM && rng() < style.wingShare) {
+    // A wing hangs off the side of the building, which on a plot laid along a
+    // street is where the neighbour stands. Those plots get an annex behind
+    // them instead (world/parcels.ts), placed like any other lot.
+    if (!lot.street && lot.heightM <= style.pitchedMaxM && rng() < style.wingShare) {
       wing(out, rng, lot, style, pitched, shortM);
     }
     if (!pitched) ledges(out, lot, style);
+    // Laid out as if the lot were square to the world, then turned with it.
+    orientToFrame(out, from, lot);
     // Everything a lot put on its own roof goes away when it is opened.
     for (let i = from; i < out.length; i++) {
       const piece = out[i];

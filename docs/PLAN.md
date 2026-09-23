@@ -59,7 +59,20 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 
 **Sizes are written against the settlement radius, never in metres.** The water, the mountains and the road grid were first written as fixed metres for a 1400 m city. When the radius became 460 the same river was still 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the ground stopped being buildable, and one bank was left with nothing on it. Two tests caught it. Anything that scales with the place is a fraction of `TERRAIN.cityRadiusM`; wavenumbers scale the other way.
 
-**Where it stands after the landscape and street pass of 23 Sep 2026**, same views, same method:
+**Where it stands after the town plan of 23 Sep 2026**, same views, same method (the day at 10:00):
+
+| | draws | triangles |
+|---|---|---|
+| Modern, roof band (250 m) | 62 | 1,517,624 |
+| Modern, opening view (520 m) | 62 | 1,164,712 |
+| Modern, above the shadow cutoff (910 m) | 44 | 737,646 |
+| Citadel, roof band (250 m) | 58 | 2,724,150 |
+| 2300, roof band (250 m) | 64 | 2,248,090 |
+| Wyrmrest, roof band (250 m) | 64 | 1,445,976 |
+
+2020 has 1234 lots where the grid had 1925, and 2300 has 1050 where it had 1173, which is most of their drop: the estates and the suburbs keep gardens. The citadel went the other way, 1947 lots against 1655, because the houses inside the walls now run right up to the wall and the lanes stop at its foot. The agents cost what they did: at rush hour, timed in node, they average 2 to 3 ms a frame in every era, as they did on the grid, although 2020's graph now has twice the nodes. The longest single building step is still under 30 ms.
+
+**Where it stood after the landscape and street pass of 23 Sep 2026**, same views, same method:
 
 | | draws | triangles |
 |---|---|---|
@@ -161,12 +174,16 @@ src/
     landscape.ts           pure: the hills and the range as one height field, sampling the mesh, where the woods stand (done)
     forest-mesh.ts         three.js: the woods on the hills, two instanced meshes (done)
     sky.ts                 pure: sun direction, sky/fog/light colours, night factor (done)
-    roads.ts               pure: road graph (nodes, edges), nearestNode, A* shortestPath (done)
+    plan.ts                pure: the town plan: edge, core, ring, main roads, and districts each with its own street pattern; hands over the road graph (done)
+    parcels.ts             pure: lots along the streets, each turned to face its street (done)
+    geometry2d.ts          pure: turned rectangles, segments, crossings, a grid index on the ground (done)
+    frame.ts               pure: a lot's own frame, which turns what is laid out square round a lot to face its street (done)
+    roads.ts               pure: road graph, runs of street between junctions, room a junction takes, bridges, nearestNode, A* (done)
     road-mesh.ts           three.js: pavement, carriageway, kerbs, and every marking in one mesh (done)
     markings.ts            pure: lane lines, crossings, stop bars, strips of light, wheel ruts (done)
     parks.ts               pure: lawn, paths, the piece in the middle, flower beds and benches (done)
     near-cut.ts            three.js: the cut-away round the camera, one mask node shared by the town (done)
-    lots.ts                pure: city blocks split into lots; each lot has a use (done)
+    lots.ts                pure: what a lot is for, how tall and in what style; the lookups the walkers use (done)
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
     props.ts               three.js: trees and street lamps (done); boats in M5
     structures.ts          three.js: walls, gates, roofs and paving an era places by hand (done)
@@ -179,10 +196,11 @@ src/
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
       index.ts             Era interface + registry (done)
+      myth.ts              era 0: Wyrmrest, lanes round a market square inside a wall (done)
       fields.ts            era 1: rice fields, huts, dirt paths, ox carts (~1500)
       citadel.ts           era 2: walled town, temple, market (~1800) (done)
       colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
-      modern.ts            era 4: towers, grid roads, cars, scooters (~2020, default) (done)
+      modern.ts            era 4: towers downtown, districts of every grain round it, cars, scooters (~2020, default) (done)
       after.ts             era 5: slender towers, glass and planting (~2300) (done)
   agents/
     pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
@@ -300,7 +318,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 
 ## 5. Art direction
 
-- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 8 m wide (modern), 4.5 m lanes (citadel). The road grid has a 40 m pitch, so blocks are about 28 m across. **The settlement fills a disc of radius 460 m**, ringed by low mountains from 760 m to 1600 m. Owner's decision, 20 Sep 2026: one small settlement rather than a city, so that every building can be worth looking at, and so that what is drawn is what is on screen. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
+- **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 7 to 10 m wide (modern), 4.5 m lanes (citadel). Blocks run from about 20 m across in an old quarter to more than 100 m long in a suburb, because each district is laid out on its own (below). **The settlement fills a disc of radius 460 m**, ringed by low mountains from 760 m to 1600 m. Owner's decision, 20 Sep 2026: one small settlement rather than a city, so that every building can be worth looking at, and so that what is drawn is what is on screen. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
 - **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
 - **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is painted daylight** (owner's decision, 20 Sep 2026; it was briefly an aerial photograph, and that set of values is in the git history). Two rules survive whichever way it goes, and they pull against each other:
   - Nothing sits below about `0x60`. A shaded side keeps roughly 45 percent of its value, so anything darker than that goes to mud, which is what the first version of every palette did.
@@ -318,6 +336,15 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   - `streetscape.ts`, what is on the ground: the wall round a yard, usually with a gap for the gate; the vehicles left at the kerb; a pole beside a lane. The buildings were never why the place looked bare. It was the ground between them.
   - `road-mesh.ts`, the pavement: one quad wider than the carriageway, drawn under it, so junctions, bridges and the ring road all take care of themselves. From above that pale border is most of what makes a road read as a street rather than as a line on a map.
 - **Roofs.** Nothing is a flat-topped box. `world/roofscape.ts` turns each lot into a ridged roof, or a deck set inside and below its own walls so the wall reads as a parapet, with a stair housing, a water tank and, on the tall ones, an off-centre plant room. Some low buildings grow a wing, so a footprint is not always one rectangle. A city seen from above is mostly roofs; without this it reads as a bar chart.
+- **The town is planned, not cut from one grid** (`world/plan.ts`, `world/parcels.ts`, 23 Sep 2026). Owner's words: "the roads and the shape of the city is too round and organised", and then "more diversity urban planning". Every era used to be one grid clipped to a disc, so from above each one was a round pizza of equal squares. Now a town is put together the way one grows:
+  - **An edge that wanders.** Slow waves round the town, and fingers reaching out along the main roads, because a town grows along its roads first. The widest direction is 1.2 to 1.4 times the narrowest.
+  - **A core**, which is the era's own: 2020 and 2300 a tight grid of towers round a square with a ring boulevard; the citadel the square city inside its walls, laid out on the axis; Wyrmrest lanes radiating from the market square to its gates, crossed by two rings, with a few greens kept open between them, because a town of that shape has no blocks to leave empty and otherwise had no open ground at all.
+  - **Main roads out of the core** at uneven angles, bending as they go and carrying on into the country. The citadel's leave its gates straight and only start to bend 60 m out (`calmM`). Between each two main roads, a collector street splits the wedge in half.
+  - **A district in each half-wedge**, a different kind from its neighbour and lined up on its own main road, so two districts meet at an angle along every collector. 2020 and 2300 choose from an old quarter of narrow lanes and tube houses, a planned grid, estates of slabs on big blocks, and a suburb of long curving streets, closes and dead ends. Outside the citadel walls it is lanes, market streets and village. A smooth warp bends every district's streets, so no two blocks are the same size.
+  - **The shore road and the ribbon.** A road follows the coast, and farmhouses string out along the country roads past the edge of town.
+  - **Lots stand along the streets and face them.** Main roads take their frontage first. A plot that does not fit is tried shallower and then narrower; a gap in the row is only left where a building would have fitted, or the gap falls on a corner nothing could stand on and the plots beside it slide into the middle of the block. Everything that stands on a lot (roof, balconies, yard wall, rooms, the people inside) is laid out square round the lot as before and turned with it by `world/frame.ts`, one transform in one place.
+
+  Things that went wrong on the way. A lane in through a gate runs beside the gate road for its last few metres, and was dropped as a parallel street; that cut the inside of the walls off from the rest, and the whole walled city was thrown away as not connected to anything. A street is now dropped only if it runs beside a main road, not past its end. Long streets were left out at random between cross streets 120 m apart, which left fields in the middle of the suburbs; they are only left out between cross streets 60 m apart or less. A turning circle at every dead end read in 1800 as a row of little round plazas; only a street 6 m wide or more gets one. 2020 comes out with 1234 lots against the old grid's 1925. Most of the difference is the gardens of the estates and the suburbs, and that change of grain from one district to the next is the point; if the town should be denser, the lever is the district pitches in `eras/modern.ts`, not the planner.
 - **Fog.** Always on, and it is the aerial perspective as much as the edge of the world. Colour equals the sky horizon so the world dissolves instead of ending; near and far scale with altitude so the far part of any frame reads as distance.
 - **Motion.** Figures bob 5 cm when walking and rotate to their heading. Cars do not turn wheels. Nothing needs skeletal animation.
 - **A figure is a person, not a brick.** Four shapes, about sixty triangles: a tapered column for the legs, a narrower one for the body, a shoulder ring, and a rounded head. The silhouette is what carries at five to eight pixels, so the proportions matter far more than the count. The geometry carries its own `color` attribute, which the material multiplies by the person's clothing colour, so one instance still gets a warmer head and darker trousers without a second draw call.
@@ -691,6 +718,9 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-23 | Roads carry markings, and a mark thinner than a pixel is drawn a pixel wide and faint | a 15 cm line at 520 m crawls as the camera moves; widened and faded it holds still and still reads |
 | 2026-09-23 | Parks are laid out, and the plan comes from the lot rather than a random stream | a bare block with trees on it reads as a lot waiting for a building; the trees have to be able to ask where the paths are |
 | 2026-09-23 | Anything nearer the camera than 38 percent of its altitude is cut away | in 2300 the camera could come down inside or against a tower and see one flat wall. The look-at point is never cut |
+| 2026-09-23 | A town is planned district by district, not cut from one grid | owner's call: "too round and organised", "more diversity urban planning". One plan module serves every era; an era says what its core, its main roads and its kinds of district are |
+| 2026-09-23 | Lots stand along the streets and are turned to face them | a lot cut from a square block only works while every block is a square on one grid; the new streets run at every angle and curve |
+| 2026-09-23 | The grid builders are removed | nothing draws them any more. The tests that walked people round the grid now walk them round a planned town |
 | 2026-09-23 | The hills cast no shadow | the shadow map covers 520 m round the look-at point and the hills are almost never in it; nothing is culled, so casting cost 86k triangles a frame for nothing |
 
 ## 10. Open questions (decide before the milestone that needs them)

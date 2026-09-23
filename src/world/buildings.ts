@@ -4,11 +4,8 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
-  Matrix4,
   type Object3D,
   MeshLambertMaterial,
-  Quaternion,
-  Vector3,
 } from 'three';
 import {
   abs,
@@ -17,8 +14,10 @@ import {
   floor,
   fract,
   mix,
+  normalGeometry,
   normalView,
   normalWorld,
+  positionGeometry,
   positionWorld,
   pow,
   step,
@@ -129,7 +128,7 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
       mesh,
       lots: styleLots,
       write: (out, index, lot, k) =>
-        writeInstanceMatrix(out, index, lot.x, 0, lot.z, 0, lot.wM * k, lot.heightM * k, lot.dM * k),
+        writeInstanceMatrix(out, index, lot.x, 0, lot.z, lot.rotY, lot.wM * k, lot.heightM * k, lot.dM * k),
     });
     group.add(mesh);
     count += styleLots.length;
@@ -150,7 +149,7 @@ export function createBuildings(lots: readonly Lot[], options: BuildingOptions):
           lot.x,
           lot.heightM,
           lot.z,
-          0,
+          lot.rotY,
           lot.wM * ROOF.overhang * k,
           ROOF.thicknessM * k,
           lot.dM * ROOF.overhang * k,
@@ -196,18 +195,12 @@ function buildingMesh(
 
   const mesh = new InstancedMesh(geometry, material, lots.length);
   mesh.name = `buildings-${style}`;
-
-  const matrix = new Matrix4();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const rotation = new Quaternion();
+  const matrices = mesh.instanceMatrix.array as Float32Array;
 
   for (let i = 0; i < lots.length; i++) {
     const lot = lots[i];
     if (!lot) continue;
-    position.set(lot.x, 0, lot.z);
-    scale.set(lot.wM, lot.heightM, lot.dM);
-    mesh.setMatrixAt(i, matrix.compose(position, rotation, scale));
+    writeInstanceMatrix(matrices, i, lot.x, 0, lot.z, lot.rotY, lot.wM, lot.heightM, lot.dM);
 
     const palette = colours[lot.use];
     const shade = palette[Math.min(palette.length - 1, Math.floor(lot.jitter * palette.length))] ?? 0x808080;
@@ -239,17 +232,21 @@ function roofMesh(lots: readonly Lot[], colour: number): InstancedMesh {
     lots.length,
   );
   mesh.name = 'buildings-roofs';
-
-  const matrix = new Matrix4();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const rotation = new Quaternion();
+  const matrices = mesh.instanceMatrix.array as Float32Array;
   for (let i = 0; i < lots.length; i++) {
     const lot = lots[i];
     if (!lot) continue;
-    position.set(lot.x, lot.heightM, lot.z);
-    scale.set(lot.wM * ROOF.overhang, ROOF.thicknessM, lot.dM * ROOF.overhang);
-    mesh.setMatrixAt(i, matrix.compose(position, rotation, scale));
+    writeInstanceMatrix(
+      matrices,
+      i,
+      lot.x,
+      lot.heightM,
+      lot.z,
+      lot.rotY,
+      lot.wM * ROOF.overhang,
+      ROOF.thicknessM,
+      lot.dM * ROOF.overhang,
+    );
   }
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;
@@ -277,11 +274,16 @@ function createWindowMaterial(
   const buildingSize = varying(attribute('iSize', 'vec3'));
   const buildingSeed = varying(attribute('iSeed', 'float'));
 
-  // Buildings stand on y = 0, so world height is height above the street, and
-  // world x/z give a window grid that lines up across the whole city.
+  // Buildings stand on y = 0, so world height is height above the street. The
+  // window columns are measured in the building's own frame: its box is a unit
+  // cube scaled per instance, so the unscaled position times the size is metres
+  // along the wall, whichever way the building is turned. They were measured in
+  // world x and z, which only works while every building faces north.
   const heightM = positionWorld.y;
-  const facingX = step(0.5, abs(normalWorld.x));
-  const acrossM = mix(positionWorld.x, positionWorld.z, facingX);
+  const local = varying(positionGeometry);
+  const localNormal = varying(normalGeometry);
+  const facingX = step(0.5, abs(localNormal.x));
+  const acrossM = mix(local.x.mul(buildingSize.x), local.z.mul(buildingSize.z), facingX);
 
   const row = heightM.div(WINDOW.rowM);
   const col = acrossM.div(WINDOW.colM);

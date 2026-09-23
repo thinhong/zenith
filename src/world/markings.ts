@@ -1,4 +1,4 @@
-import type { RoadGraph } from '@/world/roads';
+import { junctionClearM, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 
 /**
@@ -191,25 +191,6 @@ function dashes(
   }
 }
 
-/** The widest road at each node: the side of the square drawn there. */
-function junctionWidths(graph: RoadGraph): Float64Array {
-  const widths = new Float64Array(graph.nodes.length);
-  for (const edge of graph.edges) {
-    widths[edge.a] = Math.max(widths[edge.a] ?? 0, edge.widthM);
-    widths[edge.b] = Math.max(widths[edge.b] ?? 0, edge.widthM);
-  }
-  return widths;
-}
-
-/**
- * How far along a road it takes to leave the junction square at its end.
- * The square is drawn axis-aligned whatever the road does, so a diagonal
- * avenue has further to go before it is out of it.
- */
-function boxExitM(squareM: number, dirX: number, dirZ: number): number {
-  return squareM / 2 / Math.max(Math.abs(dirX), Math.abs(dirZ), 1e-6);
-}
-
 /**
  * Junctions that get a crossing on every arm. Decided per junction rather
  * than per arm, because that is how they are built: a junction with lights
@@ -237,11 +218,10 @@ function crossingSpanM(style: MarkingStyle): number {
 
 export function buildMarkings(rng: Rng, graph: RoadGraph, style: MarkingStyle): Mark[] {
   const out: Mark[] = [];
-  const squares = junctionWidths(graph);
   const crossed =
     style.kind === 'ruts' ? new Uint8Array(graph.nodes.length) : crossedJunctions(rng, graph, style.crossingShare);
 
-  for (const edge of graph.edges) {
+  for (const [index, edge] of graph.edges.entries()) {
     const a = graph.nodes[edge.a];
     const b = graph.nodes[edge.b];
     if (!a || !b) continue;
@@ -258,11 +238,10 @@ export function buildMarkings(rng: Rng, graph: RoadGraph, style: MarkingStyle): 
       widthM: edge.widthM,
       major: edge.kind !== 'street',
     };
-    // A bend in one road runs straight through; only a real junction stops it.
-    const degreeA = graph.adjacency[edge.a]?.length ?? 0;
-    const degreeB = graph.adjacency[edge.b]?.length ?? 0;
-    const startM = degreeA >= 3 ? boxExitM(squares[edge.a] ?? 0, run.dirX, run.dirZ) : 0;
-    const endM = lengthM - (degreeB >= 3 ? boxExitM(squares[edge.b] ?? 0, run.dirX, run.dirZ) : 0);
+    // A bend in one road runs straight through; only a real junction stops
+    // it, and then at the edge of the road it meets, however obliquely.
+    const startM = junctionClearM(graph, index, edge.a);
+    const endM = lengthM - junctionClearM(graph, index, edge.b);
     if (endM - startM < MARKINGS.minRunM) continue;
 
     if (style.kind === 'ruts') {

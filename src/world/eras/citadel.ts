@@ -2,17 +2,11 @@ import { smoothstep } from '@/state/altitude';
 import { CITADEL_THOUGHTS } from '@/thoughts/citadel-content';
 import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
-import {
-  avenueCorridors,
-  buildBlocks,
-  buildLots,
-  LOTS,
-  type Lot,
-  type LotProfile,
-  type LotUse,
-} from '@/world/lots';
+import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import { LAYER_Y } from '@/world/ground';
-import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
+import { parcelSteps } from '@/world/parcels';
+import { planSteps, type ParcelStyle, type PlanStyle } from '@/world/plan';
+import { createGraph, largestComponent, type RoadGraph } from '@/world/roads';
 import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
@@ -203,18 +197,9 @@ const STREET_STYLE: StreetStyle = {
 };
 
 const CITADEL_LOTS: LotProfile = {
-  // A town of small compounds, not of city blocks: a house here is about ten
-  // metres across, so a block holds a dozen of them with yards between.
-  lotsPerBlock: () => ({ min: 4, max: 10 }),
   // Nothing in 1800 is tall, so the limit rarely bites; it stops a shrine on
   // a sliver of a plot from becoming a tower.
   maxAspect: 3.2,
-  minLotSideM: 3.2,
-  // Twice the minimum side plus the setbacks: a split that happens has to be a
-  // split that survives, or the last one of every block is thrown away.
-  splitFloorM: 7.5,
-  setbackM: 1,
-  parkChance: (d) => 0.1 + 0.16 * smoothstep(0.35, 1, d),
   weights: (d) => {
     const court = 1 - smoothstep(0.18, 0.42, d);
     const town = smoothstep(0.3, 0.6, d);
@@ -398,28 +383,165 @@ const PARK_STYLE: ParkStyle = {
   bench: 0x6b4a32,
 };
 
+/** Compounds inside the walls: a house and its yard, about ten metres a side. */
+const COMPOUND: ParcelStyle = {
+  frontM: [7, 11],
+  depthM: [7, 11],
+  setbackM: 1.2,
+  gapM: [0.8, 2.5],
+  fill: 0.94,
+  annexChance: 0.3,
+  backfill: 0.7,
+};
+/** Shophouses on the market streets outside the walls, shoulder to shoulder. */
+const SHOPHOUSE: ParcelStyle = {
+  frontM: [4.5, 7.5],
+  depthM: [9, 14],
+  setbackM: 0.5,
+  gapM: [0, 0.6],
+  fill: 0.96,
+  annexChance: 0.2,
+  backfill: 0.8,
+};
+/** Houses in their gardens, where the town thins into village. */
+const VILLAGE: ParcelStyle = {
+  frontM: [9, 14],
+  depthM: [8, 12],
+  setbackM: 2.5,
+  gapM: [3, 8],
+  fill: 0.85,
+  annexChance: 0.45,
+  backfill: 0.2,
+};
+const FARM: ParcelStyle = {
+  frontM: [10, 14],
+  depthM: [8, 12],
+  setbackM: 4,
+  gapM: [14, 40],
+  fill: 0.5,
+  annexChance: 0.5,
+  backfill: 0,
+};
+
+/** The polar radius of a square of half-side `halfM`, so a square can be a plan's core. */
+function squareRadius(angle: number, halfM: number): number {
+  return halfM / Math.max(Math.abs(Math.cos(angle)), Math.abs(Math.sin(angle)));
+}
+
+/** Just outside the moat: where the road round the citadel runs. */
+const MOAT_ROAD_M = CITADEL.wallHalfM + 31;
+/** Where the lane up the axis ends, in the forecourt of the first hall. */
+const FORECOURT_Z = 60;
+/** Width of the stone bridge over the moat at each gate. */
+const BRIDGE_M = 12;
+
+/**
+ * Hue's plan: inside the walls, the planned grid of lanes the citadel was
+ * laid out on, square to the walls; outside them, a town that grew along the
+ * roads leaving the four gates, in winding lanes, market streets and
+ * villages, lined up on whichever road each part grew from.
+ */
+export const CITADEL_PLAN: PlanStyle = {
+  outline: { share: 1, wobble: 0.1, fingerM: 45, fingerRad: 0.12 },
+  core: {
+    radiusAt: (angle) => squareRadius(angle, MOAT_ROAD_M),
+    pattern: 'grid',
+    pitchM: [CITADEL.pitchM, CITADEL.pitchM],
+    acrossM: [CITADEL.pitchM, CITADEL.pitchM],
+    streetM: CITADEL.laneWidthM,
+    warpM: 0,
+    warpScaleM: 100,
+    turnRad: 0,
+    dropShare: 0.04,
+    parkChance: 0.1,
+    parcel: COMPOUND,
+    exact: true,
+    // No lanes in the wall, the moat, or the precinct, except the one axis
+    // that runs up through its gate to the halls.
+    keepOut: (x, z) => {
+      const edge = Math.max(Math.abs(x), Math.abs(z));
+      const atGate = Math.min(Math.abs(x), Math.abs(z)) < CITADEL.gateWidthM / 2 + 1;
+      if (edge > CITADEL.wallHalfM - 5 && edge < MOAT_ROAD_M - 4 && !atGate) return true;
+      // The axis stops at the forecourt: the halls stand on it further in.
+      const onAxis = Math.abs(x) <= 3 && z > FORECOURT_Z;
+      return edge < CITADEL.innerHalfM + 13 && !onAxis;
+    },
+  },
+  ring: { offsetM: 0, widthM: 9, kind: 'ring' },
+  arterials: {
+    count: 4,
+    angles: [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2],
+    widthM: 9,
+    countryWidthM: 6,
+    wanderRad: 0.06,
+    calmM: 60,
+    reachM: 90,
+  },
+  collectorM: 6,
+  districts: [
+    {
+      name: 'lanes',
+      weight: 1.3,
+      pitchM: [22, 30],
+      acrossM: [24, 32],
+      grade: 0.25,
+      streetM: 4.5,
+      warpM: 7,
+      warpScaleM: 55,
+      dropShare: 0.12,
+      deadEndShare: 0.15,
+      closeShare: 0.1,
+      skewRad: 0.4,
+      parkChance: 0.08,
+      parcel: COMPOUND,
+    },
+    {
+      name: 'market streets',
+      weight: 1,
+      pitchM: [30, 40],
+      acrossM: [30, 38],
+      grade: 0.3,
+      streetM: 5.5,
+      warpM: 3,
+      warpScaleM: 120,
+      dropShare: 0.06,
+      deadEndShare: 0,
+      closeShare: 0,
+      skewRad: 0.15,
+      parkChance: 0.05,
+      parcel: SHOPHOUSE,
+    },
+    {
+      name: 'village',
+      weight: 0.9,
+      pitchM: [44, 64],
+      acrossM: [36, 50],
+      grade: 0.3,
+      streetM: 4.5,
+      warpM: 11,
+      warpScaleM: 70,
+      dropShare: 0.15,
+      deadEndShare: 0.3,
+      closeShare: 0.25,
+      skewRad: 0.4,
+      parkChance: 0.14,
+      parcel: VILLAGE,
+    },
+  ],
+  shoreRoad: { offsetM: 14, widthM: 7 },
+  ribbon: { reachM: 70, parcel: FARM },
+  square: null,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
-  const shape = { pitchM: CITADEL.pitchM, streetWidthM: CITADEL.laneWidthM, avenueCount: 0, ringWidthM: 9 };
-  const grid = buildRoadGraph(rng, terrain, shape);
-  yield;
-  const roads = cutAtWalls(grid);
+  const plan = yield* planSteps(rng, terrain, CITADEL_PLAN);
+  const roads = cutAtWalls(plan.roads);
   yield;
 
-  const blocks = buildBlocks(terrain, shape).filter((block) => {
-    // The precinct is laid out by hand, and nothing stands on the wall.
-    if (insideSquare(block.x, block.z, CITADEL.innerHalfM + 13)) return false;
-    return !onWall(block.x, block.z);
+  const lots = yield* parcelSteps(rng, terrain, { ...plan, roads }, CITADEL_LOTS, {
+    // Nothing stands on the wall or in the moat, and the precinct is laid out by hand.
+    allowed: (x, z) => !onWall(x, z) && !insideSquare(x, z, CITADEL.innerHalfM + 13),
   });
-  yield;
-
-  const lots = buildLots(
-    rng,
-    terrain,
-    blocks,
-    avenueCorridors(roads),
-    CITADEL_LOTS,
-    terrain.cityRadiusM,
-  ).filter((lot) => !onWall(lot.x, lot.z));
 
   // The halls, down the axis, south to north. These are lots so that people
   // walk to them, not scenery.
@@ -427,6 +549,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const add = (x: number, z: number, wM: number, dM: number, heightM: number, use: LotUse): void => {
     halls.push({
       id: lots.length + halls.length,
+      rotY: 0,
       x,
       z,
       wM,
@@ -473,6 +596,9 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   for (const side of [-1, 1]) {
     structures.push(flat(0, side * moatMid, moatSpan, CITADEL.moatWidthM, MOAT, LAYER_Y.road + 0.05));
     structures.push(flat(side * moatMid, 0, CITADEL.moatWidthM, moatSpan, MOAT, LAYER_Y.road + 0.05));
+    // A stone bridge over the moat at each gate, or the lane runs under water.
+    structures.push(flat(0, side * moatMid, BRIDGE_M, CITADEL.moatWidthM + 3, STONE, LAYER_Y.road + 0.08));
+    structures.push(flat(side * moatMid, 0, CITADEL.moatWidthM + 3, BRIDGE_M, STONE, LAYER_Y.road + 0.08));
   }
 
   structures.push(
@@ -522,15 +648,18 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }
 
+/**
+ * The wall, and what is kept clear round it. Outside the outer wall that is
+ * the moat and the road round it; inside, only the wall itself, because the
+ * houses of the citadel were built right up against it with the lanes
+ * running to its foot.
+ */
 function onWall(x: number, z: number): boolean {
-  for (const wall of [
-    { halfM: CITADEL.wallHalfM, bandM: CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM + 11 },
-    { halfM: CITADEL.innerHalfM, bandM: CITADEL.innerThicknessM / 2 + 7 },
-  ]) {
-    const edge = Math.max(Math.abs(x), Math.abs(z));
-    if (Math.abs(edge - wall.halfM) < wall.bandM) return true;
-  }
-  return false;
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  const inner = CITADEL.wallHalfM - CITADEL.wallThicknessM / 2 - 0.5;
+  const outer = CITADEL.wallHalfM + CITADEL.wallThicknessM / 2 + CITADEL.moatWidthM + 11;
+  if (edge > inner && edge < outer) return true;
+  return Math.abs(edge - CITADEL.innerHalfM) < CITADEL.innerThicknessM / 2 + 7;
 }
 
 export const CITADEL_ERA: Era = {
@@ -551,4 +680,4 @@ export const CITADEL_ERA: Era = {
   build,
 };
 
-export { CITADEL, LOTS as MODERN_LOT_LIMITS };
+export { CITADEL };

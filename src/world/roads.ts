@@ -1,60 +1,30 @@
-import { range, type Rng } from '@/world/seed';
-import { isBuildable, waterDepthAt, type TerrainSpec } from '@/world/terrain';
-
 /**
- * The road network: a grid with a ring road, a few diagonal avenues and a
- * bridge or two where water splits the city. Pure module, no three.js, so the
- * layout and the pathfinding can be tested without a GPU (AGENTS.md 3).
+ * The road network as a graph, and the searches people and vehicles make on
+ * it. Pure module, no three.js, so the pathfinding can be tested without a GPU
+ * (AGENTS.md 3).
  *
- * The graph is also what M2 walks people and vehicles along, so it is always
- * returned fully connected: anything the water cut off is dropped.
+ * The network itself is laid out by the town planner (world/plan.ts), which
+ * hands over a graph that is always fully connected: anything the water cut
+ * off is dropped. What lives here is what every era's graph shares: its
+ * shape, the runs of street between junctions, how much room a junction
+ * takes, the bridges, and A*.
  */
 export const ROADS = {
-  /** A block is about this wide, so a street is one side of a short walk. */
-  pitchM: 40,
-  streetWidthM: 8,
-  avenueWidthM: 14,
-  ringWidthM: 15,
   /** How far a road must stay from open water. */
   bankMarginM: 8,
-  ringNodes: 40,
-  /** A ring node joins the grid if a grid node is this close. */
-  ringSpurM: 70,
-  avenueCount: 2,
-  /** How far an avenue may sit off the centre of the city. */
-  avenueOffsetM: 110,
   maxBridges: 2,
   bridgeSpanM: 150,
   /** Keep bridges apart instead of bunching them at the narrowest point. */
   bridgeSpacingM: 450,
 } as const;
 
-/** The shape of one era's network. Everything an era may vary lives here. */
-export interface RoadOptions {
-  pitchM: number;
-  streetWidthM: number;
-  avenueWidthM: number;
-  ringWidthM: number;
-  avenueCount: number;
-  ringNodes: number;
-  /** Nothing is built beyond this. Defaults to the terrain's city radius. */
-  cityRadiusM: number;
-}
-
-export function roadOptions(terrain: TerrainSpec, over: Partial<RoadOptions> = {}): RoadOptions {
-  return {
-    pitchM: ROADS.pitchM,
-    streetWidthM: ROADS.streetWidthM,
-    avenueWidthM: ROADS.avenueWidthM,
-    ringWidthM: ROADS.ringWidthM,
-    avenueCount: ROADS.avenueCount,
-    ringNodes: ROADS.ringNodes,
-    cityRadiusM: terrain.cityRadiusM,
-    ...over,
-  };
-}
-
 export type RoadKind = 'street' | 'avenue' | 'ring';
+
+/**
+ * How far the pavement reaches past the kerb, in metres. It is drawn as one
+ * wider quad under the road (road-mesh.ts), and lots stand behind it.
+ */
+export const PAVEMENT_M = 2.2;
 
 export interface RoadNode {
   readonly id: number;
@@ -87,138 +57,6 @@ export interface DraftEdge {
 export interface Point {
   x: number;
   z: number;
-}
-
-const TAU = Math.PI * 2;
-
-export function buildRoadGraph(
-  rng: Rng,
-  terrain: TerrainSpec,
-  over: Partial<RoadOptions> = {},
-): RoadGraph {
-  const shape = roadOptions(terrain, over);
-  const points: Point[] = [];
-  const edges: DraftEdge[] = [];
-  const edgeByKey = new Map<string, number>();
-
-  const addNode = (x: number, z: number): number => {
-    points.push({ x, z });
-    return points.length - 1;
-  };
-
-  const addEdge = (a: number, b: number, kind: RoadKind, widthM: number): void => {
-    if (a === b || a < 0 || b < 0) return;
-    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-    const existing = edgeByKey.get(key);
-    if (existing !== undefined) {
-      // An avenue that lands on a street widens that street instead of
-      // stacking a second road on top of it.
-      const e = edges[existing];
-      if (e && widthM > e.widthM) {
-        e.kind = kind;
-        e.widthM = widthM;
-      }
-      return;
-    }
-    edgeByKey.set(key, edges.length);
-    edges.push({ a, b, kind, widthM });
-  };
-
-  // --- the grid ---------------------------------------------------------
-  const gridId = new Map<string, number>();
-  const half = Math.floor(shape.cityRadiusM / shape.pitchM);
-  for (let i = -half; i <= half; i++) {
-    for (let j = -half; j <= half; j++) {
-      const x = i * shape.pitchM;
-      const z = j * shape.pitchM;
-      if (!withinCity(terrain, shape, x, z)) continue;
-      gridId.set(`${i},${j}`, addNode(x, z));
-    }
-  }
-  const gridCount = points.length;
-
-  for (let i = -half; i <= half; i++) {
-    for (let j = -half; j <= half; j++) {
-      const a = gridId.get(`${i},${j}`);
-      if (a === undefined) continue;
-      const right = gridId.get(`${i + 1},${j}`);
-      const down = gridId.get(`${i},${j + 1}`);
-      if (right !== undefined) addEdge(a, right, 'street', shape.streetWidthM);
-      if (down !== undefined) addEdge(a, down, 'street', shape.streetWidthM);
-    }
-  }
-
-  // --- the ring road ----------------------------------------------------
-  const ringIds: (number | null)[] = [];
-  for (let k = 0; k < shape.ringNodes; k++) {
-    const a = (k / shape.ringNodes) * TAU;
-    const x = Math.cos(a) * shape.cityRadiusM;
-    const z = Math.sin(a) * shape.cityRadiusM;
-    const wet = waterDepthAt(terrain.water, x, z) > -ROADS.bankMarginM;
-    ringIds.push(wet ? null : addNode(x, z));
-  }
-  for (let k = 0; k < ringIds.length; k++) {
-    const a = ringIds[k];
-    const b = ringIds[(k + 1) % ringIds.length];
-    if (a === null || a === undefined || b === null || b === undefined) continue;
-    addEdge(a, b, 'ring', shape.ringWidthM);
-  }
-  for (const id of ringIds) {
-    if (id === null || id === undefined) continue;
-    const p = points[id];
-    if (!p) continue;
-    const near = nearestPoint(points, gridCount, p.x, p.z);
-    const q = near >= 0 ? points[near] : undefined;
-    if (q && Math.hypot(q.x - p.x, q.z - p.z) <= ROADS.ringSpurM) {
-      addEdge(id, near, 'street', shape.streetWidthM);
-    }
-  }
-
-  // --- diagonal avenues -------------------------------------------------
-  for (let k = 0; k < shape.avenueCount; k++) {
-    // Angles well away from the grid axes, or an avenue is just a wider street.
-    const base = range(rng, 0.45, 1.12);
-    const angle = k % 2 === 0 ? base : Math.PI - base;
-    const offsetM = range(rng, -ROADS.avenueOffsetM, ROADS.avenueOffsetM);
-    const dx = Math.cos(angle);
-    const dz = Math.sin(angle);
-    const step = shape.pitchM * 1.45;
-    let previous = -1;
-    for (let t = -shape.cityRadiusM; t <= shape.cityRadiusM; t += step) {
-      const x = dx * t - dz * offsetM;
-      const z = dz * t + dx * offsetM;
-      const id = nearestPoint(points, gridCount, x, z);
-      const p = id >= 0 ? points[id] : undefined;
-      if (!p || Math.hypot(p.x - x, p.z - z) > shape.pitchM) {
-        // No grid node here (water, or outside the city): start a new run.
-        previous = -1;
-        continue;
-      }
-      const q = previous >= 0 ? points[previous] : undefined;
-      if (q && previous !== id && Math.hypot(p.x - q.x, p.z - q.z) <= step * 1.4) {
-        addEdge(previous, id, 'avenue', shape.avenueWidthM);
-      }
-      previous = id;
-    }
-  }
-
-  // --- bridges ----------------------------------------------------------
-  for (const bridge of planBridges(points, edges)) {
-    addEdge(bridge.a, bridge.b, 'street', shape.streetWidthM);
-  }
-
-  return largestComponent(createGraph(points, edges));
-}
-
-/** Inside this era's built area and far enough from the water. */
-export function withinCity(
-  terrain: TerrainSpec,
-  shape: RoadOptions,
-  x: number,
-  z: number,
-): boolean {
-  if (Math.hypot(x, z) > shape.cityRadiusM) return false;
-  return isBuildable(terrain, x, z, ROADS.bankMarginM);
 }
 
 /** Lengths and adjacency from plain points and edges. Does not drop anything. */
@@ -274,6 +112,118 @@ export function largestComponent(graph: RoadGraph): RoadGraph {
     edges.push({ a, b, kind: e.kind, widthM: e.widthM });
   }
   return createGraph(points, edges);
+}
+
+/** How many roads meet at a node: 1 is a dead end, 2 a bend in one road. */
+export function degreeOf(graph: RoadGraph, node: number): number {
+  return graph.adjacency[node]?.length ?? 0;
+}
+
+/**
+ * How far along an edge, from the end at `node`, it takes to get clear of
+ * the other roads that meet there: each one's half width plus `padM`, over
+ * the sine of the angle it meets this one at. A side street joining at
+ * thirty degrees takes twice the room of one joining square on, and the old
+ * square junction patches got that wrong for every road off the grid.
+ *
+ * A road that carries straight on through the junction is the same road and
+ * is skipped, and a bend in one road (two edges) or a dead end needs nothing.
+ */
+export function junctionClearM(graph: RoadGraph, edgeIndex: number, node: number, padM = 0): number {
+  const touching = graph.adjacency[node] ?? [];
+  if (touching.length < 3) return 0;
+  const edge = graph.edges[edgeIndex];
+  const here = graph.nodes[node];
+  if (!edge || !here) return 0;
+  const far = graph.nodes[edge.a === node ? edge.b : edge.a];
+  if (!far) return 0;
+  const length = Math.hypot(far.x - here.x, far.z - here.z) || 1;
+  const dx = (far.x - here.x) / length;
+  const dz = (far.z - here.z) / length;
+  let clear = 0;
+  for (const index of touching) {
+    if (index === edgeIndex) continue;
+    const other = graph.edges[index];
+    if (!other) continue;
+    const end = graph.nodes[other.a === node ? other.b : other.a];
+    if (!end) continue;
+    const otherLength = Math.hypot(end.x - here.x, end.z - here.z) || 1;
+    const sin = Math.abs((dx * (end.z - here.z) - dz * (end.x - here.x)) / otherLength);
+    if (sin < 0.26) continue;
+    clear = Math.max(clear, (other.widthM / 2 + padM) / sin);
+  }
+  return clear;
+}
+
+/**
+ * The roads as runs from junction to junction: each run is the edges of one
+ * street between two places where it meets another, in order, joined at the
+ * bends. A planned street is cut into short straight pieces wherever it
+ * curves, and anything decided per street (is it planted, with what, does
+ * anyone park on it) has to be decided per run, or a curving street changes
+ * its trees at every bend.
+ */
+export function roadChains(graph: RoadGraph): number[][] {
+  const used = new Uint8Array(graph.edges.length);
+  const chains: number[][] = [];
+  for (let e = 0; e < graph.edges.length; e++) {
+    if (used[e]) continue;
+    const first = graph.edges[e];
+    if (!first) continue;
+    used[e] = 1;
+    const chain = [e];
+    for (const end of [first.a, first.b]) {
+      let node = end;
+      let current = e;
+      while (degreeOf(graph, node) === 2) {
+        const next = (graph.adjacency[node] ?? []).find((i) => i !== current);
+        if (next === undefined || used[next]) break;
+        used[next] = 1;
+        if (end === first.a) chain.unshift(next);
+        else chain.push(next);
+        const edge = graph.edges[next];
+        if (!edge) break;
+        node = edge.a === node ? edge.b : edge.a;
+        current = next;
+      }
+    }
+    chains.push(chain);
+  }
+  return chains;
+}
+
+/** One edge of a run, with the node it is walked from and the node it is walked to. */
+export interface ChainStep {
+  edge: number;
+  from: number;
+  to: number;
+}
+
+/** Walks a run from one end to the other, so "the left side" means one side all the way along. */
+export function walkChain(graph: RoadGraph, chain: readonly number[]): ChainStep[] {
+  const steps: ChainStep[] = [];
+  const first = graph.edges[chain[0] ?? -1];
+  if (!first) return steps;
+  const second = graph.edges[chain[1] ?? -1];
+  let from = second && (first.a === second.a || first.a === second.b) ? first.b : first.a;
+  for (const index of chain) {
+    const edge = graph.edges[index];
+    if (!edge) break;
+    const to = edge.a === from ? edge.b : edge.a;
+    steps.push({ edge: index, from, to });
+    from = to;
+  }
+  return steps;
+}
+
+/**
+ * How much of an edge's end to leave clear of anything placed along it: past
+ * the other roads at a junction, a little at a dead end, nothing at a bend.
+ */
+export function endClearM(graph: RoadGraph, edgeIndex: number, node: number, minimumM: number, padM: number): number {
+  const degree = degreeOf(graph, node);
+  if (degree >= 3) return Math.max(minimumM, junctionClearM(graph, edgeIndex, node, padM));
+  return degree === 1 ? minimumM * 0.5 : 0;
 }
 
 /** Cell size of the road-node lookup grid, in metres. */
@@ -446,10 +396,10 @@ function componentLabels(graph: RoadGraph): Int32Array {
 }
 
 /**
- * Where water splits the grid, pick a few short crossings between the two
+ * Where water splits the network, pick a few short crossings between the two
  * largest pieces, spread along the bank rather than bunched together.
  */
-function planBridges(points: readonly Point[], edges: readonly DraftEdge[]): Point2Pair[] {
+export function planBridges(points: readonly Point[], edges: readonly DraftEdge[]): Point2Pair[] {
   const graph = createGraph(points, edges);
   const labels = componentLabels(graph);
   const members = new Map<number, number[]>();
@@ -492,25 +442,9 @@ function planBridges(points: readonly Point[], edges: readonly DraftEdge[]): Poi
   return accepted;
 }
 
-interface Point2Pair {
+export interface Point2Pair {
   a: number;
   b: number;
-}
-
-/** Nearest of the first `limit` points. Used to snap avenues onto the grid. */
-function nearestPoint(points: readonly Point[], limit: number, x: number, z: number): number {
-  let best = -1;
-  let bestDistance = Infinity;
-  for (let i = 0; i < limit; i++) {
-    const p = points[i];
-    if (!p) continue;
-    const d = (p.x - x) ** 2 + (p.z - z) ** 2;
-    if (d < bestDistance) {
-      bestDistance = d;
-      best = i;
-    }
-  }
-  return best;
 }
 
 function straightLine(graph: RoadGraph, from: number, to: number): number {

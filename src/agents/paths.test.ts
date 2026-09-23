@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildWalkPath, offsetPolyline, pathLengthM, PATHS, simplifyCorners } from './paths';
-import { buildRoadGraph, createGraph, nearestNode, type DraftEdge, type Point } from '@/world/roads';
+import { MODERN_PLAN } from '@/world/eras/modern';
+import { planTown } from '@/world/plan';
+import { createGraph, nearestNode, type DraftEdge, type Point } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
 import { buildTerrain } from '@/world/terrain';
 
@@ -85,7 +87,7 @@ describe('buildWalkPath', () => {
 
   it('stays under the waypoint cap', () => {
     const terrain = buildTerrain(mulberry32(1));
-    const city = buildRoadGraph(mulberry32(1), terrain);
+    const city = planTown(mulberry32(1), terrain, MODERN_PLAN).roads;
     const a = nearestNode(city, -1200, -1200);
     const b = nearestNode(city, 1200, 1200);
     const path = buildWalkPath(city, {

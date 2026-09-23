@@ -1,4 +1,5 @@
 import type { Structure } from '@/world/eras';
+import { orientToFrame } from '@/world/frame';
 import type { Lot } from '@/world/lots';
 import { range, type Rng } from '@/world/seed';
 
@@ -127,6 +128,7 @@ export function buildFacade(rng: Rng, lots: readonly Lot[], style: FacadeStyle):
       shopfront(out, rng, lot, style);
     }
 
+    orientToFrame(out, from, lot);
     // Everything on a building's face goes away when the building is opened,
     // the same as everything on its roof does.
     for (let i = from; i < out.length; i++) {
@@ -146,7 +148,9 @@ export function buildFacade(rng: Rng, lots: readonly Lot[], style: FacadeStyle):
  */
 function balconies(out: Structure[], rng: Rng, lot: Lot, style: FacadeStyle): void {
   const { balcony } = style;
-  const alongX = lot.wM >= lot.dM;
+  // On a plot along a street the balconies face the street and the back, not
+  // the neighbours: a tube house's long walls are party walls.
+  const alongX = lot.street === true || lot.wM >= lot.dM;
   const wallM = alongX ? lot.wM : lot.dM;
   const half = (alongX ? lot.dM : lot.wM) / 2;
   const slabColour = pick(balcony.colours, lot.jitter);
@@ -262,8 +266,10 @@ function shopfront(out: Structure[], rng: Rng, lot: Lot, style: FacadeStyle): vo
     colour: bandColour,
   });
 
-  const alongX = lot.wM >= lot.dM;
-  const side = rng() < 0.5 ? 1 : -1;
+  // Over the door, which on a plot along a street is on the street side.
+  const alongX = lot.street === true || lot.wM >= lot.dM;
+  const roll = rng();
+  const side = lot.street === true ? -1 : roll < 0.5 ? 1 : -1;
   const half = (alongX ? lot.dM : lot.wM) / 2;
   const outM = half + shop.canopyDepthM * 0.5;
   const runM = (alongX ? lot.wM : lot.dM) * 0.45;

@@ -13,7 +13,7 @@ const STYLE: ParkStyle = {
 };
 
 function park(wM: number, dM: number, jitter: number, over: Partial<Lot> = {}): Lot {
-  return { id: 1, x: 100, z: -40, wM, dM, use: 'park', heightM: 0, style: 'low', jitter, ...over };
+  return { id: 1, x: 100, z: -40, wM, dM, rotY: 0, use: 'park', heightM: 0, style: 'low', jitter, ...over };
 }
 
 /** Corners of a structure's footprint in the ground plane. */

@@ -4,8 +4,11 @@ import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/wor
 import { ERA_POPULATION } from '@/world/eras/population';
 import { buildFacade, type FacadeStyle } from '@/world/facade';
 import { LAYER_Y } from '@/world/ground';
-import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile, type LotUse } from '@/world/lots';
-import { buildRoadGraph, type RoadGraph } from '@/world/roads';
+import type { OrientedRect } from '@/world/geometry2d';
+import type { Lot, LotProfile, LotUse } from '@/world/lots';
+import { parcelSteps } from '@/world/parcels';
+import { planSteps, type ParcelStyle, type PlanStyle } from '@/world/plan';
+import type { RoadGraph } from '@/world/roads';
 import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
@@ -74,6 +77,8 @@ const MYTH = {
   keep: { x: 0, z: -78, baseM: 26, heightM: 34, turretM: 7.5, turretHeightM: 44 },
   /** The market square, which is where the streets are aiming. */
   marketM: 46,
+  /** A lane: room for a cart and somebody stepping aside for it. */
+  laneM: 5.5,
 } as const;
 
 const STONE = { wall: 0x8c8a82, shade: 0x77756e, keep: 0x9a978d, base: 0x6f6d66 } as const;
@@ -239,13 +244,7 @@ const FACADE_STYLE: FacadeStyle = {
 };
 
 const MYTH_LOTS: LotProfile = {
-  /** Small plots everywhere. Nobody here has a site big enough to be grand. */
-  lotsPerBlock: () => ({ min: 7, max: 15 }),
   maxAspect: 2.6,
-  minLotSideM: 3.2,
-  splitFloorM: 7,
-  setbackM: 0.8,
-  parkChance: (d) => 0.08 + 0.24 * smoothstep(0.45, 1, d),
   weights: (d) => {
     const middle = 1 - smoothstep(0.1, 0.5, d);
     return {
@@ -737,38 +736,110 @@ const PARK_STYLE: ParkStyle = {
   bench: 0x5a4632,
 };
 
+/** Timber houses along the lanes, shoulder to shoulder and back to back. */
+const HOUSES: ParcelStyle = {
+  frontM: [5, 9],
+  depthM: [7, 12],
+  setbackM: 0.5,
+  gapM: [0, 1],
+  fill: 0.95,
+  annexChance: 0.3,
+  backfill: 0.8,
+};
+
+/**
+ * The buildings that face the market square, placed by hand: the temple to
+ * the west, the guild hall to the east, the market hall on the south side
+ * clear of the lane to the south gate. Each is turned to face the square.
+ */
+function squareHalls(): { rect: OrientedRect; heightM: number; use: LotUse }[] {
+  // Just past the street that runs round the square, which is the square's
+  // own half-size, then the pavement and half the street.
+  const halfW = MYTH.marketM / 2 + 2.2 + MYTH.laneM / 2;
+  const halfD = MYTH.marketM * 0.4 + 2.2 + MYTH.laneM / 2;
+  const front = MYTH.laneM / 2 + 2.2 + 1;
+  return [
+    { rect: { x: -(halfW + front + 8.5), z: 4, wM: 26, dM: 17, rotY: -Math.PI / 2 }, heightM: 13, use: 'temple' },
+    { rect: { x: halfW + front + 7.5, z: 0, wM: 20, dM: 15, rotY: Math.PI / 2 }, heightM: 9, use: 'work' },
+    { rect: { x: -19, z: halfD + front + 5.5, wM: 22, dM: 11, rotY: 0 }, heightM: 7, use: 'market' },
+  ];
+}
+
+/**
+ * A town that grew round its market, inside a wall: lanes radiate from the
+ * square to the gates and between them, rings of lane cross them, alleys cut
+ * between the rings, and a lane runs round the inside of the wall. Three
+ * tracks leave by the gates; nothing else is laid outside.
+ */
+export function mythPlan(meanM: number): PlanStyle {
+  const halls = squareHalls();
+  const keepClear = MYTH.keep.baseM * 1.3;
+  return {
+    outline: { share: MYTH.wallShare + 0.02, wobble: 0.04, fingerM: 20, fingerRad: 0.1 },
+    core: {
+      radiusAt: (angle) => wallRadius(angle, meanM),
+      pattern: 'radial',
+      pitchM: [30, 30],
+      acrossM: [30, 30],
+      streetM: MYTH.laneM,
+      warpM: 0,
+      warpScaleM: 60,
+      turnRad: 0,
+      dropShare: 0,
+      parkChance: 0,
+      parcel: HOUSES,
+      // The gates, the keep to the north, and the gaps between.
+      spokeAngles: [Math.PI / 2, (5 * Math.PI) / 6, (7 * Math.PI) / 6, (3 * Math.PI) / 2, (11 * Math.PI) / 6, Math.PI / 6],
+      spokes: 6,
+      rings: [0.4, 0.68],
+      alleys: 16,
+      greens: 4,
+      keepOut: (x, z) => {
+        if (Math.max(Math.abs(x - MYTH.keep.x), Math.abs(z - MYTH.keep.z)) < keepClear) return true;
+        return halls.some(({ rect }) => Math.abs(x - rect.x) < (Math.abs(Math.sin(rect.rotY)) > 0.5 ? rect.dM : rect.wM) / 2 + 1 && Math.abs(z - rect.z) < (Math.abs(Math.sin(rect.rotY)) > 0.5 ? rect.wM : rect.dM) / 2 + 1);
+      },
+    },
+    ring: { offsetM: -9, widthM: 5, kind: 'street' },
+    arterials: {
+      count: MYTH.gateAngles.length,
+      angles: MYTH.gateAngles,
+      widthM: 6.5,
+      countryWidthM: 5.5,
+      wanderRad: 0.02,
+      reachM: MYTH.approachM,
+    },
+    collectorM: 0,
+    districts: [],
+    shoreRoad: null,
+    ribbon: null,
+    square: { wM: MYTH.marketM, dM: MYTH.marketM * 0.8, lot: null },
+  };
+}
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const meanM = terrain.cityRadiusM * MYTH.wallShare;
-  // Short blocks and narrow lanes: a town you can cross on foot in a minute.
-  const shape = { pitchM: 34, streetWidthM: 6.5, avenueCount: 0, ringWidthM: 8 };
-  const grid = buildRoadGraph(rng, terrain, shape);
-  yield;
-  const roads = cutAtWall(grid, meanM);
+  const plan = yield* planSteps(rng, terrain, mythPlan(meanM));
+  const roads = cutAtWall(plan.roads, meanM);
   yield;
 
-  const keepClear = MYTH.keep.baseM * 1.3;
-  const blocks = buildBlocks(terrain, shape).filter((block) => {
-    if (!insideWall(block.x, block.z, meanM)) return false;
-    // Nothing stands on the wall, in the market square, or on the keep.
-    if (Math.hypot(block.x, block.z) > wallRadius(Math.atan2(block.z, block.x), meanM) - 9) {
-      return false;
-    }
-    if (Math.max(Math.abs(block.x), Math.abs(block.z - MYTH.keep.z)) < keepClear) return false;
-    return Math.hypot(block.x, block.z) > MYTH.marketM * 0.62;
+  const halls = squareHalls();
+  const lots = yield* parcelSteps(rng, terrain, { ...plan, roads }, MYTH_LOTS, {
+    // Nothing stands on the wall.
+    allowed: (x, z) => Math.hypot(x, z) < wallRadius(Math.atan2(z, x), meanM) - 6,
+    prebuilt: halls.map((hall) => hall.rect),
   });
-  yield;
 
-  const lots = buildLots(rng, terrain, blocks, avenueCorridors(roads), MYTH_LOTS, terrain.cityRadiusM);
-
-  // The temple, on the square, and the guild hall facing it. Lots rather than
-  // scenery, so people walk to them and think their thoughts inside them.
-  const placed: Lot[] = [];
-  const add = (x: number, z: number, wM: number, dM: number, heightM: number, use: LotUse): void => {
-    placed.push({ id: lots.length + placed.length, x, z, wM, dM, use, heightM, style: 'low', jitter: rng() });
-  };
-  add(-MYTH.marketM * 0.62, 8, 17, 26, 13, 'temple');
-  add(MYTH.marketM * 0.66, 2, 20, 15, 9, 'work');
-  add(0, MYTH.marketM * 0.7, 26, 11, 7, 'market');
+  // The temple, the guild hall and the market hall on the square. Lots
+  // rather than scenery, so people walk to them and think their thoughts
+  // inside them.
+  const placed: Lot[] = halls.map((hall, i) => ({
+    id: lots.length + i,
+    ...hall.rect,
+    use: hall.use,
+    heightM: hall.heightM,
+    style: 'low',
+    jitter: rng(),
+  }));
   const all = [...lots, ...placed].map((lot, index) => ({ ...lot, id: index }));
   yield;
 
