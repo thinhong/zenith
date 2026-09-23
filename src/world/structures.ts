@@ -2,6 +2,7 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   Group,
@@ -9,7 +10,9 @@ import {
   type Material,
   PlaneGeometry,
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Structure, StructureKind } from '@/world/eras';
+import { nearCutMask } from '@/world/near-cut';
 import { hueRoofGeometry } from '@/world/roof-geometry';
 import {
   attachInstanceColors,
@@ -39,7 +42,7 @@ export function createStructures(structures: readonly Structure[]): Structures {
   const group = new Group();
   group.name = 'structures';
   const layers: { mesh: InstancedMesh<BufferGeometry, Material>; items: readonly Structure[] }[] = [];
-  for (const kind of ['flat', 'box', 'roof', 'gable', 'hue', 'tank', 'trim'] as const) {
+  for (const kind of ['flat', 'box', 'roof', 'gable', 'hue', 'tank', 'trim', 'round'] as const) {
     const mine = structures.filter((structure) => structure.kind === kind);
     if (mine.length === 0) continue;
     const mesh = meshFor(kind, mine);
@@ -75,7 +78,9 @@ function meshFor(
   kind: StructureKind,
   structures: readonly Structure[],
 ): InstancedMesh<BufferGeometry, Material> {
-  const mesh = new InstancedMesh(geometryFor(kind), createInstanceColorMaterial(true), structures.length);
+  const material = createInstanceColorMaterial(true);
+  material.maskNode = nearCutMask();
+  const mesh = new InstancedMesh(geometryFor(kind), material, structures.length);
   mesh.name = `structures-${kind}`;
   mesh.frustumCulled = false;
 
@@ -121,6 +126,20 @@ function geometryFor(kind: StructureKind): BufferGeometry {
   }
   if (kind === 'gable') return gableGeometry();
   if (kind === 'hue') return hueRoofGeometry();
+  if (kind === 'round') {
+    // Basins, pools, beds and well-heads: things that are round because they
+    // are made to be walked round. Twelve sides is round from the street, and
+    // the bottom is left off because everything of this kind sits on the
+    // ground: a flower bed holds seven of them, and a citadel two hundred beds.
+    const side = new CylinderGeometry(0.5, 0.5, 1, 12, 1, true);
+    side.translate(0, 0.5, 0);
+    const top = new CircleGeometry(0.5, 12);
+    top.rotateX(-Math.PI / 2);
+    top.translate(0, 1, 0);
+    const round = mergeGeometries([side, top]);
+    if (!round) throw new Error('could not build the round structure');
+    return round;
+  }
   if (kind === 'tank') {
     // Four sides. A tank is about two metres across, so the extra facets were
     // never visible and cost more than the building underneath them.

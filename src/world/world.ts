@@ -45,6 +45,8 @@ import {
   type LotUse,
 } from '@/world/lots';
 import { collectProps, createProps, type Props } from '@/world/props';
+import { buildMarkings } from '@/world/markings';
+import { setNearCut } from '@/world/near-cut';
 import { createRoads } from '@/world/road-mesh';
 import { mulberry32 } from '@/world/seed';
 import { createInteriors } from '@/world/interiors-mesh';
@@ -148,6 +150,7 @@ interface EraWorld {
   /** Null for an era that puts nothing on its lots beyond the buildings. */
   structures: Structures | null;
   setRoadOpacity: (value: number) => void;
+  setRoadNight: (night: number) => void;
   setOpen: (lotIds: ReadonlySet<number>, towardX: number, towardZ: number) => void;
   lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
 }
@@ -207,7 +210,14 @@ export function createWorld({
     const group = new Group();
     group.name = `era-${era.id}`;
 
-    const roads = createRoads(layout.roads, era.palette.road, era.palette.pavement);
+    const marks = buildMarkings(mulberry32(seed + 29), layout.roads, era.palette.marks);
+    const roads = createRoads(
+      layout.roads,
+      era.palette.road,
+      era.palette.pavement,
+      marks,
+      era.palette.marks.kind === 'light',
+    );
     yield;
     const buildings = createBuildings(layout.lots, {
       colours: era.palette.building,
@@ -229,6 +239,7 @@ export function createWorld({
       roundShare: era.palette.roundShare,
       bush: era.palette.bush,
       bushesPerTree: era.palette.bushesPerTree,
+      streetTrees: era.palette.streetTrees,
       lamps: era.palette.lamps,
     };
     const placements = collectProps(
@@ -248,7 +259,7 @@ export function createWorld({
     group.add(roads.group, buildings.group, props.group, interiors.group);
     if (structures) group.add(structures.group);
     group.traverse((object) => {
-      object.castShadow = true;
+      object.castShadow = object.userData.castsNoShadow !== true;
       object.receiveShadow = true;
     });
     scene.add(group);
@@ -270,6 +281,7 @@ export function createWorld({
       props,
       structures,
       setRoadOpacity: roads.setOpacity,
+      setRoadNight: roads.setNight,
       /**
        * Takes these buildings away, with their roofs and their water tanks,
        * and stands an open shell in their place. The camera always looks
@@ -544,6 +556,7 @@ export function createWorld({
         if (toward.x * openedTowardX + toward.z * openedTowardZ < 0.84) rebuildOpen(toward);
       }
       const altitudeM = view.altitudeM;
+      setNearCut(altitudeM);
       advanceClock(clock, dtS);
       if (!reducedMotion) advanceClouds(elapsedS);
       advancePending();
@@ -606,6 +619,7 @@ export function createWorld({
         world.buildings.setFacade(detailFactor(DETAIL.facade, altitudeM));
         world.props.setNight(night);
         world.props.setDetail(props);
+        world.setRoadNight(night);
       }
 
       people.update(dtS, clock.hourOfDay, view);

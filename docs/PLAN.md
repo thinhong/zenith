@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v14, 20 September 2026. M0 to M3 closed. M5 part closed: the era system and the citadel are in, three eras are not. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v15, 23 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -59,7 +59,20 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 
 **Sizes are written against the settlement radius, never in metres.** The water, the mountains and the road grid were first written as fixed metres for a 1400 m city. When the radius became 460 the same river was still 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the ground stopped being buildable, and one bank was left with nothing on it. Two tests caught it. Anything that scales with the place is a fraction of `TERRAIN.cityRadiusM`; wavenumbers scale the other way.
 
-**Where it stands after the detail passes of 20 Sep 2026**, seed 1, `?pause=1`, 1280x800. The triangle figures include the shadow pass, which draws the scene a second time:
+**Where it stands after the landscape and street pass of 23 Sep 2026**, same views, same method:
+
+| | draws | triangles |
+|---|---|---|
+| Modern, roof band (250 m) | 62 | 2,013,990 |
+| Modern, opening view (520 m) | 62 | 1,661,078 |
+| Modern, above the shadow cutoff (910 m) | 44 | 989,724 |
+| Citadel, roof band (250 m) | 54 | 2,519,704 |
+| 2300, roof band (250 m) | 64 | 2,708,964 |
+| Wyrmrest, roof band (250 m) | 60 | 1,421,998 |
+
+That is about twice what it was, on the owner's instruction to spend triangles on the city. The largest items, estimated from the layouts and doubled for the shadow pass wherever they cast: trees in 2020 and 2300 (a broadleaf crown is six lobes, 120 triangles, and 2300 has 3,364 of them), the citadel's Hue roofs, and the parks' flower beds in the citadel. The woods on the hills and the road markings cast nothing. **If the phone cannot hold 30 fps, cut in this order:** broadleaf crowns back to fewer lobes, flower beds to plain discs, then the street trees' spacing.
+
+**After the detail passes of 20 Sep 2026**, seed 1, `?pause=1`, 1280x800. The triangle figures include the shadow pass, which draws the scene a second time:
 
 | | draws | triangles |
 |---|---|---|
@@ -144,10 +157,15 @@ src/
     seed.ts                deterministic PRNG (done)
     world.ts               assembles a World; applies sky and detail each frame (done for M1)
     terrain.ts             pure: ground disc, mountain ring, river or coast, isBuildable (done)
-    ground.ts              three.js: land disc, water ribbon, mountain cones (done)
+    ground.ts              three.js: land disc, water with shallows and foam, beaches, the hills and their woods (done)
+    landscape.ts           pure: the hills and the range as one height field, sampling the mesh, where the woods stand (done)
+    forest-mesh.ts         three.js: the woods on the hills, two instanced meshes (done)
     sky.ts                 pure: sun direction, sky/fog/light colours, night factor (done)
     roads.ts               pure: road graph (nodes, edges), nearestNode, A* shortestPath (done)
-    road-mesh.ts           three.js: one InstancedMesh for the whole network (done)
+    road-mesh.ts           three.js: pavement, carriageway, kerbs, and every marking in one mesh (done)
+    markings.ts            pure: lane lines, crossings, stop bars, strips of light, wheel ruts (done)
+    parks.ts               pure: lawn, paths, the piece in the middle, flower beds and benches (done)
+    near-cut.ts            three.js: the cut-away round the camera, one mask node shared by the town (done)
     lots.ts                pure: city blocks split into lots; each lot has a use (done)
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
     props.ts               three.js: trees and street lamps (done); boats in M5
@@ -178,7 +196,8 @@ src/
     monsters.ts            three.js: imps, beasts and heroes, and the hunt (done)
     monster-shapes.ts      three.js: the geometry of the three kinds of body (done)
   thoughts/
-    content.ts             pure: thought texts by era and by place, data only (done)
+    content.ts             pure: thought texts by era, by place, by kind of person and by time of day; the pool one person draws from (done)
+    human-content.ts       pure: the shared human core of thoughts that every era draws on (done)
     select.ts              pure: who is thinking out loud, and for how long (done)
     thoughts.ts            three.js + DOM: projects heads to screen, places the pills (done)
     place.ts               pure: where a pill goes and how it stays joined to a head (done)
@@ -260,6 +279,8 @@ interface LifeCard { name: string; age: number; worry: string }
 | street | 12 to 60 | same | boxes, lights at night | figures, activity poses | up to 6, nearest first, within 40 m of the target | murmur close, accents (bell, horn, birds) |
 
 Transitions use `smoothstep` over a 20 percent window around each boundary so nothing pops. The thresholds live in one place (`state/altitude.ts`) and are tuned by feel, not hard-coded elsewhere.
+
+At every height, anything nearer the camera than `NEAR_CUT` (38 percent of the altitude, at most 44 m) is cut away so it cannot fill the frame; see section 5.
 
 ### 4.5 Time model
 
@@ -367,6 +388,12 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
   - **Tilt shift.** Sharp in a band across the middle, blurred above and below. This is the one that matters most: a depth of field that shallow only happens to something a few centimetres across, so the eye reads the whole town as a physical model on a table. It fades out below about 150 m, because at street level a human eye would not see it and it reads as a smeared lens instead.
   - **Outlines.** A dark line where depth or surface direction breaks. Screen space, which is the only way it can work here: a line measured in metres that reads at 400 m is a heavy border at 12 m.
   - **Bloom.** Lit windows spill past their own edges after dark, and only after dark. Without it a night city is a grid of bright rectangles that stop dead at the wall.
+- **The country round the town** (`world/landscape.ts`, `world/forest-mesh.ts`, 23 Sep 2026). Seventy-six seven-sided cones became one height field of 86,400 triangles, and the first version of that stood up as a wall: the range reached full height in the last 114 m before the ring, and the peak specs put 400 m peaks at the edge of the plain as often as anywhere, so from above the town sat in a crater with streaked sides. Three changes made it a valley. The range rises over 620 m instead. A peak keeps only 30 percent of its height near the plain and all of it from 1500 m out, so the nearest mountains are shoulders and the big ones stand behind them. And a band of smooth rolling foothills, 36 m at most, turns the valley floor up into the range through country rather than at a crease. On the hills stand about twelve thousand trees in stands with clearings between them, thinning towards a tree line at half the highest peak and never on a slope steeper than 0.9. They stand on the mesh itself, sampled triangle by triangle (`sampleGrid`), not on the function the mesh was sampled from: between samples the two differ by a metre on a ridge and a tree stood on the wrong one floats.
+- **The shore** (`world/ground.ts`). Water was one flat colour up to a ruled edge, which is how a map draws a coast. The strip is built from the bank out and carries the distance from it, so the water knows where it is shallow: pale over the bottom for the first 60 m, a line of foam at the edge that comes in and goes back on a seven-second lap, slow wide swell further out, and a tight faint highlight broken into glitter by small moving ripples. A broad bright highlight was tried first and lit a third of the sea white whenever the camera faced the sun. Behind the water a strip of sand, or of mud along a river, wet and dark at the edge and fading into the land along a ragged line. The coastline itself is sampled every 19 m rather than every 77, because the foam drawn along it made every corner of the old polyline obvious.
+- **The roads carry what is painted on them** (`world/markings.ts`). A dashed line down a two-lane street, a double line and edge lines down an avenue, zebra crossings and a stop bar on the side the traffic arrives, at every junction with lights and 42 percent of the others. 2300 draws the same plan as strips of light that burn after dark, with a band of light where people cross and no stop bars. 1800 and Wyrmrest have wheel ruts in broken runs, and Wyrmrest grass between them. A lane line is 15 cm wide, a quarter of a pixel from the opening view, and a line that thin crawls as the camera moves, so every mark is drawn at least a pixel wide and faint in proportion: each corner knows which way its mark's thin side runs and grows along it in the vertex stage. Close up nothing moves and the paint is solid; from high up the roads carry a steady trace of their markings, which is what an aerial photograph shows. Transparent layers are sorted by the centre of their bounds, and the paint's centre is not the tarmac's, so the markings are drawn after every road layer by `renderOrder` or the carriageway covers them from some angles.
+- **Parks are laid out** (`world/parks.ts`). A park was a bare block of town ground with trees on a loose grid, which from the roof band reads as a lot nobody has built on yet. Grass alone fixes most of that. Then paths, a cross or corner to corner by the lot's own jitter, a loop round the edge of a big one, a round plaza in the middle, flower beds between the paths and benches facing in. The piece in the middle is the era's: a fountain in 2020, a square lotus pond in 1800, the well with its little roof in Wyrmrest, a long still pool in 2300. The plan comes from the lot alone, never from a random stream, so `props.ts` asks for the same plan and keeps its trees off the paths.
+- **The ground is not one flat tint** (`GROUND_GRAIN`). Two sizes of noise, 24 m and 7 m, both far larger than a pixel from anywhere the town is seen, so neither needs a fade. And the fields are turned 21 degrees against the town and bent by up to 34 m, because square, aligned and all one size they read from the cloud band as a chessboard laid under the town.
+- **Whatever comes between the camera and the ground is cut away** (`state/altitude.ts NEAR_CUT`, `world/near-cut.ts`). In 2300 a tower is three times taller than the camera can be low, and coming down beside one filled the frame with one flat wall. Anything nearer the camera than 38 percent of its altitude, or 44 m, is discarded, with a five-metre dithered edge; the look-at point is never touched. A dither rather than transparency keeps it in the opaque pass and writing depth. Spread over twenty metres the dither turned a whole tower top into a screen door, so the band is narrow on purpose.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does. They wrap rather than run off the frame, and they carry a tail pointing at the head they belong to. The lift above the head is part metres and part pixels: a lift in metres alone shrinks with altitude, so over an opened building the stack came to rest on the very crowd it belonged to.
 - **A person is about sixty triangles, or a hundred and eighty.** The figure was sized for somebody five pixels tall, which is what they are from the roof band, but the camera comes down to 12 m and there a person fills a good part of the frame: six facets read as a hexagonal nut and no arms reads as a skittle. Eight sides and separate arms now, and the cost is paid back several times over by not drawing the people nobody can see. Above 300 m they are dots, because a person is roughly 1450/altitude pixels tall and three metres above that line a figure is three pixels.
 
@@ -569,6 +596,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - Mix of work, money, love, health, food, small errands, hopes, and small kindnesses. About one in ten should be light and funny. About one in ten should be tender ("I hope she gets in.").
 - Era flavour comes from nouns, not from old-fashioned grammar. Fields: rain, buffalo, harvest, tax collector, the temple fair. Citadel: the mandarin's exam, the market price of silk, the drum at dawn. Colonial: the tram fare, French lessons, a letter from Hue. Modern: the report, the promotion, the scooter loan, the grant deadline. After: the birds, the flood line, the old tower.
 - Never: mocking, politics, religion as a joke, brand names, real people, cruelty.
+- **What a person thinks depends on where, who and when** (23 Sep 2026). A line can belong to a place, to a kind of person (office, shop, student, retired, night worker), or to a part of the day (dawn, morning, afternoon, evening, night), and a person draws from all three at once, so a student and a grandmother at the same stall no longer draw from the same forty lines and noon no longer sounds like midnight. Under every era is a shared human core of 254 lines (`thoughts/human-content.ts`), which makes the piece's idea structural: a clerk in 1800 and a clerk in 2300 pick from one list, with different nouns on top. 977 lines in all. Tests hold the shape: every pool at least 60 lines, the core free of anachronisms by whole word, no core line repeated in an era set, and over half the lines spoken as I, me or my, because a line with nobody in it reads as a caption.
 - Life cards: `name` from an era list (Vietnamese names throughout; the land is the same land), `age` 6 to 85, `worry` one thought.
 
 ## 8. Testing and verification
@@ -658,6 +686,12 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-20 | The magic is in the nouns, the same rule every era follows | nobody is awed by the world they grew up in. A dragon under the hill is local geography, and the people are still thinking about the rent |
 | 2026-09-20 | The dragon is landscape, not an agent, and is never pointed at | a monster you are told about is set dressing; one you work out for yourself from a ridge you had stopped looking at is what the place is named after |
 | 2026-09-20 | A fight has no health, no damage and no winner | the piece is not a game. Two shapes closing, striking, and one going home reads as a fight; anything more exists only in numbers nobody is shown |
+| 2026-09-23 | Thoughts are chosen by place, kind of person and time of day, over a shared human core | owner asked for a much larger bag of thoughts. Keying by place alone gave a student and a grandmother the same forty lines |
+| 2026-09-23 | The mountain ring became a valley: near peaks are shoulders, foothills between, woods on the hills | the range stood up as a wall round the town. Height is saved for the peaks behind; the owner asked for the city to be truly beautiful and this was the largest thing in the frame from above |
+| 2026-09-23 | Roads carry markings, and a mark thinner than a pixel is drawn a pixel wide and faint | a 15 cm line at 520 m crawls as the camera moves; widened and faded it holds still and still reads |
+| 2026-09-23 | Parks are laid out, and the plan comes from the lot rather than a random stream | a bare block with trees on it reads as a lot waiting for a building; the trees have to be able to ask where the paths are |
+| 2026-09-23 | Anything nearer the camera than 38 percent of its altitude is cut away | in 2300 the camera could come down inside or against a tower and see one flat wall. The look-at point is never cut |
+| 2026-09-23 | The hills cast no shadow | the shadow map covers 520 m round the look-at point and the hills are almost never in it; nothing is culled, so casting cost 86k triangles a frame for nothing |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

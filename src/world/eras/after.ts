@@ -4,6 +4,7 @@ import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
 import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
+import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
@@ -47,6 +48,15 @@ const PALETTE: EraPalette = {
   roundShare: 0.7,
   bush: 0x6aa85c,
   bushesPerTree: 1.0,
+  streetTrees: { share: 0.86, spacingM: 8.5 },
+  marks: {
+    kind: 'light',
+    line: 0xd6f8ff,
+    centre: 0x8ce6ff,
+    ink: 0.78,
+    centreInk: 0,
+    crossingShare: 0.7,
+  },
   lamps: true,
   /**
    * Almost every pane is lit and the light is cool and even, because nothing
@@ -336,6 +346,20 @@ const FACADE_STYLE: FacadeStyle = {
   },
 };
 
+/**
+ * Lawns kept like carpet, white paths, and a long still pool where 2020 had
+ * its fountain. Nothing splashes in 2300; the water only reflects.
+ */
+const PARK_STYLE: ParkStyle = {
+  lawn: [0x7db865, 0x86bf6d, 0x78b25f],
+  path: 0xe2e6e4,
+  centre: 'pool',
+  stone: 0xe8edef,
+  water: 0x6ec0d8,
+  flowers: [0x9be8d8, 0xf7a8c8, 0xfff0a8],
+  bench: 0xdfe6ea,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const roads = buildRoadGraph(rng, terrain);
   yield;
@@ -350,6 +374,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...skyline(rng, lots, terrain.cityRadiusM));
   yield;
   structures.push(...buildFacade(rng, lots, FACADE_STYLE));
+  structures.push(...buildParks(lots, PARK_STYLE));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

@@ -87,6 +87,39 @@ export const DETAIL = {
   shadowHysteresisM: 40,
 } as const;
 
+/**
+ * Whatever comes between the camera and what it is looking at is cut away.
+ *
+ * The camera looks at a point on the ground, and its altitude is its
+ * distance from that point. In 2300 a tower can be three times taller than
+ * the camera is high, and coming down beside one used to fill the frame with
+ * a single flat wall, or put the camera inside it. Now anything nearer the
+ * camera than a share of that distance dissolves, in a fine dither so the
+ * edge of the cut is soft, and the point being looked at is never touched.
+ *
+ * The cut is capped in metres as well: from the roof band up, a tower top
+ * a hundred metres below the camera is part of the view, not in the way of it.
+ */
+export const NEAR_CUT = {
+  /** Fully gone nearer than this share of the altitude, or `maxM`. */
+  share: 0.38,
+  maxM: 44,
+  /**
+   * Fully there beyond this share, or `fadeMaxM`. A narrow band on purpose:
+   * the dither is a grain, and spread over twenty metres it turned a whole
+   * tower top into a screen door. Over five it is only the edge of the cut.
+   */
+  fadeShare: 0.45,
+  fadeMaxM: 50,
+} as const;
+
+export function nearCutRange(altitudeM: number): { fromM: number; toM: number } {
+  return {
+    fromM: Math.min(altitudeM * NEAR_CUT.share, NEAR_CUT.maxM),
+    toM: Math.min(altitudeM * NEAR_CUT.fadeShare, NEAR_CUT.fadeMaxM),
+  };
+}
+
 export function detailFactor(fade: Fade, altitudeM: number): number {
   return smoothstep(fade.offM, fade.onM, altitudeM);
 }

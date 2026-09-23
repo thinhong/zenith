@@ -1,5 +1,5 @@
 import { Vector2 } from 'three';
-import { float, floor, fract, positionWorld, sin, smoothstep, uniform } from 'three/tsl';
+import { float, floor, fract, mx_noise_float, positionWorld, sin, smoothstep, uniform, vec2 } from 'three/tsl';
 
 /**
  * The two large patterns that sit on top of everything: cloud shadows drifting
@@ -35,6 +35,15 @@ export const CLOUDS = {
 export const FIELDS = {
   /** Side of one field, in metres. */
   sizeM: 115,
+  /**
+   * The grid of fields is turned against the town's and bent, so the
+   * patchwork follows neither the streets nor a ruler. Square, aligned and
+   * all one size, it read from the cloud band as a chessboard laid under the
+   * town, which is the one thing farmland never looks like.
+   */
+  turnRad: 0.37,
+  bendM: 34,
+  bendScaleM: 260,
   /** How far a field's colour departs from the base, as a fraction. */
   spread: 0.26,
   /**
@@ -50,10 +59,18 @@ export const FIELDS = {
 /** The drift offset, advanced once a frame and shared by every material. */
 const drift = uniform(new Vector2(0, 0));
 
+/**
+ * Seconds the weather has been running, for anything else that moves with it:
+ * the lap of the water on the shore. It stands still for a viewer who asked
+ * for less motion, because it is advanced in the same place the clouds are.
+ */
+export const weatherTime = uniform(0);
+
 /** Moves the weather along. Called once a frame from world.ts. */
 export function advanceClouds(elapsedS: number): void {
   const distance = (elapsedS * CLOUDS.driftMS * Math.PI * 2) / CLOUDS.spanM;
   drift.value.set(distance * CLOUDS.driftX, distance * CLOUDS.driftZ);
+  weatherTime.value = elapsedS;
 }
 
 /**
@@ -98,7 +115,13 @@ export function townToCountry(cityRadiusM: number) {
  * buildings and a patchwork would read as stripes.
  */
 export function fieldTone(cityRadiusM: number) {
-  const cell = positionWorld.xz.div(FIELDS.sizeM);
+  const p = positionWorld.xz;
+  const c = Math.cos(FIELDS.turnRad);
+  const s = Math.sin(FIELDS.turnRad);
+  const turned = vec2(p.x.mul(c).sub(p.y.mul(s)), p.x.mul(s).add(p.y.mul(c)));
+  const bendAt = p.div(FIELDS.bendScaleM);
+  const bend = vec2(mx_noise_float(bendAt), mx_noise_float(bendAt.add(vec2(17.3, -8.1)))).mul(FIELDS.bendM);
+  const cell = turned.add(bend).div(FIELDS.sizeM);
   const cx = floor(cell.x);
   const cz = floor(cell.y);
   // The same small-constant hash world/buildings.ts uses. Every term is kept

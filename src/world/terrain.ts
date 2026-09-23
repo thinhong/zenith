@@ -106,7 +106,10 @@ function buildWater(rng: Rng): WaterSpec {
   const p2 = range(rng, 0, TAU);
 
   const tMinM = -TERRAIN.waterSpanM;
-  const tStepM = Math.max(25, r / 6);
+  // Close enough that the bank reads as a curve. Every 77 m, as it was, the
+  // shore was a run of straight cuts with a corner at each sample, and the
+  // foam line drawn along it made every corner obvious.
+  const tStepM = Math.max(10, r / 24);
   const samples = Math.ceil((-tMinM * 2) / tStepM) + 1;
   const offsetsM: number[] = [];
   for (let i = 0; i < samples; i++) {

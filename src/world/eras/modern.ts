@@ -3,6 +3,7 @@ import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, VehicleProfile } from '@/world/eras';
 import { avenueCorridors, buildBlocks, buildLots, MODERN_LOTS } from '@/world/lots';
 import { buildRoadGraph } from '@/world/roads';
+import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import { buildFacade, type FacadeStyle } from '@/world/facade';
@@ -42,6 +43,16 @@ const PALETTE: EraPalette = {
   roundShare: 0.45,
   bush: 0x557f3c,
   bushesPerTree: 0.7,
+  streetTrees: { share: 0.62, spacingM: 10.5 },
+  marks: {
+    kind: 'paint',
+    line: 0xe6e4dc,
+    centre: 0xdcb04a,
+    ink: 0.82,
+    centreInk: 0,
+    // Crossings at the junctions with lights, and at a share of the rest.
+    crossingShare: 0.42,
+  },
   lamps: true,
   windowsLit: 0.42,
   windowGlow: 0.85,
@@ -164,6 +175,20 @@ const FACADE_STYLE: FacadeStyle = {
   },
 };
 
+/**
+ * Grass, pale paving, and a fountain in the middle with benches round it: the
+ * municipal park, which every town of this size has one of in each district.
+ */
+const PARK_STYLE: ParkStyle = {
+  lawn: [0x6e9a4a, 0x76a150, 0x699343],
+  path: 0xc9bfa6,
+  centre: 'fountain',
+  stone: 0xbdb6a8,
+  water: 0x5a9cc0,
+  flowers: [0xd8495f, 0xf2c94c, 0xe07b39, 0xb05fc4],
+  bench: 0x7a5a3c,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const roads = buildRoadGraph(rng, terrain);
   yield;
@@ -176,6 +201,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
   yield;
   structures.push(...buildFacade(rng, lots, FACADE_STYLE));
+  structures.push(...buildParks(lots, PARK_STYLE));
   return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
 }
 

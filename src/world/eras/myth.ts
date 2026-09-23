@@ -6,6 +6,7 @@ import { buildFacade, type FacadeStyle } from '@/world/facade';
 import { LAYER_Y } from '@/world/ground';
 import { avenueCorridors, buildBlocks, buildLots, type Lot, type LotProfile, type LotUse } from '@/world/lots';
 import { buildRoadGraph, type RoadGraph } from '@/world/roads';
+import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { range, type Rng } from '@/world/seed';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
@@ -109,6 +110,16 @@ const PALETTE: EraPalette = {
   roundShare: 0.42,
   bush: 0x557a44,
   bushesPerTree: 1.15,
+  streetTrees: { share: 0.14, spacingM: 16 },
+  // Wheel ruts with grass between them: the lanes here are used, not kept.
+  marks: {
+    kind: 'ruts',
+    line: 0x5c523d,
+    centre: 0x6d7b44,
+    ink: 0.5,
+    centreInk: 0.34,
+    crossingShare: 0,
+  },
   lamps: true,
   /**
    * Firelight, not lighting. A handful of windows and they flicker warm: the
@@ -712,6 +723,20 @@ function keepStructures(): Structure[] {
   return out;
 }
 
+/**
+ * The green: rough grass, beaten paths, and the well everybody draws from,
+ * which is why the paths go to it.
+ */
+const PARK_STYLE: ParkStyle = {
+  lawn: [0x6d8a47, 0x769250],
+  path: 0xa8987a,
+  centre: 'well',
+  stone: 0x8b8579,
+  water: 0x2f4a55,
+  flowers: [0xc9b458, 0x9d6fb5, 0xe6e0c8],
+  bench: 0x5a4632,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const meanM = terrain.cityRadiusM * MYTH.wallShare;
   // Short blocks and narrow lanes: a town you can cross on foot in a minute.
@@ -772,6 +797,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildStreetscape(rng, roads, all, STREET_STYLE));
   yield;
   structures.push(...buildFacade(rng, all, FACADE_STYLE));
+  structures.push(...buildParks(all, PARK_STYLE));
 
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }

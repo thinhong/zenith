@@ -52,6 +52,13 @@ export interface CameraRig {
 const START_TILT = 0.58;
 
 /**
+ * Vertical field of view, in degrees. The road markings read it too: they
+ * work out how many metres one pixel covers at their distance, so that a line
+ * thinner than a pixel is drawn a pixel wide and faint (world/road-mesh.ts).
+ */
+export const CAMERA_FOV_DEG = 45;
+
+/**
  * A single orbit camera whose distance-to-target is the "altitude" of the
  * viewer. Zooming (scroll / pinch) changes altitude; altitude drives what the
  * world shows. The polar angle is clamped so the viewer always looks down.
@@ -62,7 +69,7 @@ export function createCameraRig(domElement: HTMLElement, options: CameraRigOptio
 
   const target = options.startTarget ?? { x: 0, z: 0 };
 
-  const camera = new PerspectiveCamera(45, 1, 1, ALTITUDE.max * 4);
+  const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, 1, ALTITUDE.max * 4);
   camera.position.set(target.x, startAltitudeM, target.z + startAltitudeM * START_TILT);
   camera.lookAt(target.x, 0, target.z);
 

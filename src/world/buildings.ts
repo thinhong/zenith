@@ -28,6 +28,7 @@ import {
 } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { cloudShadow } from '@/world/atmosphere';
+import { nearCutMask } from '@/world/near-cut';
 import { writeInstanceMatrix } from '@/world/instanced';
 import type { BuildingStyle, Lot, LotUse } from '@/world/lots';
 
@@ -353,6 +354,7 @@ function createWindowMaterial(
 
   const material = new MeshLambertNodeMaterial();
   material.colorNode = instanceColor.mul(shaded).mul(shopfront).mul(cloudShadow());
+  material.maskNode = nearCutMask();
   // three declares emissiveNode only on MeshStandardNodeMaterial, but
   // NodeMaterial.setupLighting() reads it on every node material.
   (material as MeshLambertNodeMaterial & { emissiveNode: unknown }).emissiveNode = glow.add(rimColour);

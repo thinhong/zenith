@@ -1,30 +1,47 @@
+import { BufferAttribute, BufferGeometry, CircleGeometry, Color, Group, Mesh } from 'three';
 import {
-  BufferAttribute,
-  BufferGeometry,
-  CircleGeometry,
-  Color,
-  ConeGeometry,
-  Group,
-  InstancedMesh,
-  Matrix4,
-  Mesh,
-  Quaternion,
-  Vector3,
-} from 'three';
-import { mix, uniform } from 'three/tsl';
-import { MeshLambertNodeMaterial } from 'three/webgpu';
-import { cloudShadow, FIELDS, fieldTone, townToCountry } from '@/world/atmosphere';
-import { centrelinePoint, TERRAIN, type MountainSpec, type TerrainSpec } from '@/world/terrain';
+  attribute,
+  clamp,
+  float,
+  min,
+  mix,
+  mx_noise_float,
+  mx_noise_vec3,
+  normalize,
+  normalWorld,
+  positionWorld,
+  sin,
+  smoothstep,
+  transformNormalToView,
+  uniform,
+  varying,
+  vec2,
+  vec3,
+} from 'three/tsl';
+import { MeshLambertNodeMaterial, MeshPhongNodeMaterial } from 'three/webgpu';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { cloudShadow, FIELDS, fieldTone, townToCountry, weatherTime } from '@/world/atmosphere';
+import { createForest } from '@/world/forest-mesh';
+import { buildForest, buildLandscapeGrid, type LandscapeGrid } from '@/world/landscape';
+import { mulberry32 } from '@/world/seed';
+import { centrelinePoint, TERRAIN, type TerrainSpec, type WaterSpec } from '@/world/terrain';
 
 /**
  * The land, the water and the mountain ring as three.js objects. Everything is
  * flat colour and instanced (AGENTS.md 6); the shape comes from terrain.ts.
  */
 
-/** The mountains ring every era, so their colour does not change with one. */
+/**
+ * The high country rings every era, so above the lowland its colours do not
+ * change with one. The lowland itself is the era's own land colour, so the
+ * foothills rise out of the plain without a seam in any century.
+ */
 export const GROUND_PALETTE = {
-  mountainLow: 0x55653f,
-  mountainHigh: 0x6a7752,
+  forest: 0x4a6b3a,
+  forestLight: 0x6d8c4b,
+  rock: 0x938a7b,
+  rockDark: 0x746c60,
+  snow: 0xf2f4f7,
 } as const;
 
 /**
@@ -32,7 +49,40 @@ export const GROUND_PALETTE = {
  * The camera's near plane grows with altitude (core/camera.ts) so these small
  * gaps stay resolvable from 6 km up.
  */
-export const LAYER_Y = { ground: 0, water: 0.3, pavement: 0.5, road: 0.6 } as const;
+export const LAYER_Y = { ground: 0, bank: 0.15, water: 0.3, pavement: 0.5, road: 0.6 } as const;
+
+/**
+ * Where the water meets the land. Open water was one flat colour right up to
+ * a ruled edge, which is how a map draws a coast, not how one looks: from the
+ * air the first thing a shore shows is the change in the water itself, pale
+ * where the bottom shows through, and a line of broken white where it meets
+ * the sand.
+ */
+export const SHORE = {
+  /** Water this close to the bank shows the bottom through it. */
+  shallowM: 60,
+  /** The line of broken water along the bank. */
+  foamM: 2.6,
+  /** How far a wave carries the foam line in and back. */
+  lapM: 1.4,
+  /** Seconds for one wave to come in and go out. */
+  lapS: 7,
+  /** Sand along a coast; a strip of mud along a river. */
+  bankM: { coast: 18, river: 6 },
+  /** How far the sand runs on under the water, so no gap shows at the edge. */
+  bankUnderM: 2,
+} as const;
+
+/** Terrain colours, the same in every era: the sea does not change its sand. */
+const SHORE_PALETTE = {
+  shallow: 0x5fbdb9,
+  foam: 0xf2f5f3,
+  sand: 0xd9caa3,
+  wetSand: 0xae9b77,
+  mud: 0x9a8c6b,
+  /** The water's own highlight, where it turns the sun back at the eye. */
+  glint: 0x252b2f,
+} as const;
 
 /** A colour the era can rewrite, read by a material's colour node. */
 function colourUniform(value: number | Color) {
@@ -64,8 +114,14 @@ export function createGround(
   const waterColour = colourUniform(water);
   const landMesh = createLand(terrain, townColour, countryColour);
   const waterMesh = createWater(terrain, waterColour);
-  group.add(landMesh, waterMesh);
-  for (const mesh of createMountains(terrain.mountains)) group.add(mesh);
+  const grid = buildLandscapeGrid(terrain, mulberry32(0x5eed));
+  group.add(
+    landMesh,
+    createBanks(terrain),
+    waterMesh,
+    createLandscape(grid, terrain, townColour, countryColour),
+    createForest(buildForest(terrain, grid, mulberry32(0xf0e5))),
+  );
 
   return {
     group,
@@ -98,12 +154,7 @@ function createLand(
   material.polygonOffsetFactor = 1;
   material.polygonOffsetUnits = 1;
 
-  const base = mix(town, country, townToCountry(terrain.cityRadiusM));
-  const tone = fieldTone(terrain.cityRadiusM);
-  const pale = base.mul(1 + FIELDS.spread);
-  const deep = base.mul(1 - FIELDS.spread);
-  const fields = mix(base, mix(deep, pale, tone.mul(0.5).add(0.5)), tone.abs());
-  material.colorNode = fields.mul(cloudShadow());
+  material.colorNode = landColour(terrain, town, country).mul(cloudShadow());
 
   const mesh = new Mesh(geometry, material);
   mesh.name = 'land';
@@ -111,14 +162,13 @@ function createLand(
   return mesh;
 }
 
-function createWater(
-  terrain: TerrainSpec,
-  colour: ColourUniform,
-): Mesh<BufferGeometry, MeshLambertNodeMaterial> {
-  const water = terrain.water;
+/**
+ * The water's centreline, carried far past both ends of the land so the strip
+ * never shows a cut edge from high up.
+ */
+function waterCentreline(water: WaterSpec): { x: number; z: number }[] {
   const centre: { x: number; z: number }[] = [];
   for (let i = 0; i < water.offsetsM.length; i++) centre.push(centrelinePoint(water, i));
-  // Run the two ends far past the land, or the strip shows a cut edge from high up.
   const head = centre[0];
   const tail = centre[centre.length - 1];
   if (head) {
@@ -133,62 +183,219 @@ function createWater(
       z: tail.z + water.dirZ * TERRAIN.waterReachM,
     });
   }
+  return centre;
+}
 
-  const inner: { x: number; z: number }[] = [];
-  const outer: { x: number; z: number }[] = [];
-  for (const p of centre) {
-    // A river is a band around its centreline; a coast is everything on one
-    // side of the shore, carried far enough out to vanish into fog.
-    const innerOffset = water.kind === 'river' ? -water.halfWidthM : 0;
-    const outerOffset = water.kind === 'river' ? water.halfWidthM : TERRAIN.waterReachM;
-    inner.push({ x: p.x + water.nrmX * innerOffset, z: p.z + water.nrmZ * innerOffset });
-    outer.push({ x: p.x + water.nrmX * outerOffset, z: p.z + water.nrmZ * outerOffset });
-  }
-  const material = new MeshLambertNodeMaterial();
-  material.colorNode = colour.mul(cloudShadow());
-  const mesh = new Mesh(ribbonGeometry(inner, outer, LAYER_Y.water), material);
+/** The centreline moved sideways across the water by `offsetM`. */
+function offsetLine(
+  water: WaterSpec,
+  centre: readonly { x: number; z: number }[],
+  offsetM: number,
+): { x: number; z: number }[] {
+  return centre.map((p) => ({ x: p.x + water.nrmX * offsetM, z: p.z + water.nrmZ * offsetM }));
+}
+
+/**
+ * 0 along a ribbon's first line and 1 along its second. The ribbon keeps its
+ * vertices in pairs, one from each line, so this is the whole of it.
+ */
+function acrossAttribute(pairs: number): BufferAttribute {
+  const across = new Float32Array(pairs * 2);
+  for (let i = 0; i < pairs; i++) across[i * 2 + 1] = 1;
+  return new BufferAttribute(across, 1);
+}
+
+/**
+ * The water surface. It knows how far each point is from the nearest bank,
+ * because the strip is built from the bank out and carries that as an
+ * attribute, and it spends that on three things: a pale shallow band where
+ * the bottom shows, a line of foam that comes in and goes out along the edge,
+ * and a highlight where the surface turns the sun back at the eye.
+ */
+function createWater(
+  terrain: TerrainSpec,
+  colour: ColourUniform,
+): Mesh<BufferGeometry, MeshPhongNodeMaterial> {
+  const water = terrain.water;
+  const centre = waterCentreline(water);
+  // A river is a band around its centreline; a coast is everything on one
+  // side of the shore, carried far enough out to vanish into fog.
+  const river = water.kind === 'river';
+  const inner = offsetLine(water, centre, river ? -water.halfWidthM : 0);
+  const outer = offsetLine(water, centre, river ? water.halfWidthM : TERRAIN.waterReachM);
+  const geometry = ribbonGeometry(inner, outer, LAYER_Y.water);
+  geometry.setAttribute('across', acrossAttribute(Math.min(inner.length, outer.length)));
+
+  const material = new MeshPhongNodeMaterial();
+  // A tight, faint highlight. Broad and bright, it lit a third of the sea
+  // white whenever the camera faced the sun, which read as fog, not water.
+  material.shininess = 320;
+  material.specular = new Color(SHORE_PALETTE.glint);
+
+  const across = varying(attribute('across', 'float'));
+  const fromBankM = river
+    ? min(across, float(1).sub(across)).mul(water.halfWidthM * 2)
+    : across.mul(TERRAIN.waterReachM);
+  // Two sizes of noise: a small one that frays the foam line, and a wide slow
+  // one that keeps open water from being one flat colour.
+  const fray = mx_noise_float(positionWorld.xz.mul(0.07));
+  const drift = vec2(weatherTime.mul(0.021), weatherTime.mul(0.013));
+  const swell = mx_noise_float(positionWorld.xz.mul(0.022).add(drift));
+  const lap = sin(weatherTime.mul((Math.PI * 2) / SHORE.lapS).add(fray.mul(2.2))).mul(0.5).add(0.5);
+
+  const shallow = mix(colour.mul(1.18), colourUniform(SHORE_PALETTE.shallow), 0.42);
+  let surface = mix(shallow, colour.mul(0.94), smoothstep(0, SHORE.shallowM, fromBankM));
+  const foam = float(1).sub(
+    smoothstep(SHORE.foamM * 0.3, lap.mul(SHORE.lapM).add(SHORE.foamM), fromBankM.add(fray.mul(0.8))),
+  );
+  surface = mix(surface, colourUniform(SHORE_PALETTE.foam), foam.mul(0.78));
+  surface = surface.mul(swell.mul(0.05).add(1));
+  material.colorNode = surface.mul(cloudShadow());
+  // Small moving ripples tilt the surface a few degrees either way, so the
+  // highlight breaks into glitter instead of lying on the sea as one disc.
+  const wavelets = mx_noise_vec3(
+    positionWorld.xz.mul(0.32).add(vec2(weatherTime.mul(0.23), weatherTime.mul(-0.17))),
+  );
+  material.normalNode = transformNormalToView(
+    normalize(vec3(wavelets.x.mul(0.075), 1, wavelets.y.mul(0.075))),
+  );
+
+  const mesh = new Mesh(geometry, material);
   mesh.name = 'water';
   return mesh;
 }
 
 /**
- * Two meshes, split by height, so the ring reads as hills rather than as one
- * repeated cone. Two draw calls for the whole horizon.
+ * Sand along a coast, or a strip of mud along each bank of a river, fading
+ * into the land behind it along a ragged line. Wet and darker at the water's
+ * edge, the way a beach is below the high-tide line.
+ *
+ * Drawn before the roads, which are transparent too: a road that runs down to
+ * the water crosses the sand, never the other way about.
  */
-function createMountains(mountains: readonly MountainSpec[]): InstancedMesh[] {
-  const low = mountains.filter((m) => m.heightM < 250);
-  const high = mountains.filter((m) => m.heightM >= 250);
-  return [
-    mountainMesh(low, GROUND_PALETTE.mountainLow, 'mountains-low'),
-    mountainMesh(high, GROUND_PALETTE.mountainHigh, 'mountains-high'),
-  ];
+function createBanks(terrain: TerrainSpec): Mesh<BufferGeometry, MeshLambertNodeMaterial> {
+  const water = terrain.water;
+  const centre = waterCentreline(water);
+  const bankM = SHORE.bankM[water.kind];
+  // Each strip runs from the land side (across 0) to under the water (across 1).
+  const strip = (landM: number, wetM: number): BufferGeometry => {
+    const land = offsetLine(water, centre, landM);
+    const wet = offsetLine(water, centre, wetM);
+    const geometry = ribbonGeometry(land, wet, LAYER_Y.bank);
+    geometry.setAttribute('across', acrossAttribute(Math.min(land.length, wet.length)));
+    return geometry;
+  };
+  const strips =
+    water.kind === 'river'
+      ? [
+          strip(-water.halfWidthM - bankM, -water.halfWidthM + SHORE.bankUnderM),
+          strip(water.halfWidthM + bankM, water.halfWidthM - SHORE.bankUnderM),
+        ]
+      : [strip(-bankM, SHORE.bankUnderM)];
+  const geometry = strips.length === 1 ? strips[0] : mergeGeometries(strips);
+  if (!geometry) throw new Error('the banks did not merge');
+
+  const material = new MeshLambertNodeMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+  const across = varying(attribute('across', 'float'));
+  const dry = colourUniform(water.kind === 'coast' ? SHORE_PALETTE.sand : SHORE_PALETTE.mud);
+  const wetLine = 1 - SHORE.bankUnderM / (bankM + SHORE.bankUnderM);
+  const wet = smoothstep(wetLine - 0.28, wetLine, across);
+  material.colorNode = mix(dry, colourUniform(SHORE_PALETTE.wetSand), wet.mul(0.85)).mul(cloudShadow());
+  const ragged = mx_noise_float(positionWorld.xz.mul(0.045)).mul(0.22);
+  material.opacityNode = smoothstep(0.05, 0.55, across.add(ragged));
+
+  const mesh = new Mesh(geometry, material);
+  mesh.name = 'banks';
+  mesh.renderOrder = -1;
+  return mesh;
 }
 
-function mountainMesh(specs: readonly MountainSpec[], color: number, name: string): InstancedMesh {
-  // Seven sides keeps the silhouette faceted, in keeping with the toy world.
-  const geometry = new ConeGeometry(1, 1, 7, 1);
-  geometry.translate(0, 0.5, 0);
+/**
+ * How much the bare ground varies inside one field or one yard: worn patches,
+ * damp patches, grass coming and going. Without it every block between the
+ * buildings was a single flat tint and read as a board the houses were glued
+ * to. Two sizes, both far larger than a pixel from anywhere the town is seen,
+ * so neither needs fading by altitude.
+ */
+export const GROUND_GRAIN = {
+  patchScaleM: 24,
+  patch: 0.08,
+  grainScaleM: 7,
+  grain: 0.035,
+} as const;
+
+/** The land's own colour: town ground in the middle, fields beyond it. */
+function landColour(terrain: TerrainSpec, town: ColourUniform, country: ColourUniform) {
+  const base = mix(town, country, townToCountry(terrain.cityRadiusM));
+  const tone = fieldTone(terrain.cityRadiusM);
+  const pale = base.mul(1 + FIELDS.spread);
+  const deep = base.mul(1 - FIELDS.spread);
+  const fields = mix(base, mix(deep, pale, tone.mul(0.5).add(0.5)), tone.abs());
+  const patch = mx_noise_float(positionWorld.xz.div(GROUND_GRAIN.patchScaleM));
+  const grain = mx_noise_float(positionWorld.xz.div(GROUND_GRAIN.grainScaleM));
+  return fields.mul(patch.mul(GROUND_GRAIN.patch).add(grain.mul(GROUND_GRAIN.grain)).add(1));
+}
+
+/**
+ * The high country: one mesh, eighty-six thousand triangles, one draw call.
+ *
+ * It replaced seventy-six seven-sided cones. Its shape is `landscape.ts`; what
+ * is here is how it is coloured, which is by what the ground would actually
+ * be at that height and angle rather than by a flat tint per mountain. The
+ * lowland is the era's own fields. Above that, forest. Where the slope is too
+ * steep to hold soil, bare rock, whatever the height. Above the tree line,
+ * more rock. At the top, snow, except on faces too steep for it to lie.
+ *
+ * Smooth-shaded where everything in the town is faceted, on purpose. At this
+ * distance, under the tilt shift, a smooth landscape reads as the modelled
+ * baseboard the miniature town is standing on, which is the look.
+ */
+function createLandscape(
+  grid: LandscapeGrid,
+  terrain: TerrainSpec,
+  town: ColourUniform,
+  country: ColourUniform,
+): Mesh<BufferGeometry, MeshLambertNodeMaterial> {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(grid.positions, 3));
+  geometry.setIndex(new BufferAttribute(grid.index, 1));
+  geometry.computeVertexNormals();
+
   const material = new MeshLambertNodeMaterial();
-  material.flatShading = true;
-  material.colorNode = colourUniform(color).mul(cloudShadow());
-  const mesh = new InstancedMesh(geometry, material, Math.max(specs.length, 1));
-  mesh.name = name;
-  mesh.count = specs.length;
-  const matrix = new Matrix4();
-  const quaternion = new Quaternion();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const up = new Vector3(0, 1, 0);
-  for (let i = 0; i < specs.length; i++) {
-    const m = specs[i];
-    if (!m) continue;
-    position.set(m.x, 0, m.z);
-    // Turning each cone hides the shared silhouette.
-    quaternion.setFromAxisAngle(up, (i * 2.399963) % (Math.PI * 2));
-    scale.set(m.radiusM, m.heightM, m.radiusM);
-    mesh.setMatrixAt(i, matrix.compose(position, quaternion, scale));
-  }
-  mesh.instanceMatrix.needsUpdate = true;
+  const h = positionWorld.y;
+  const top = Math.max(1, grid.maxHeightM);
+  const high = h.div(top);
+  const steep = float(1).sub(clamp(normalWorld.y, 0, 1));
+  // Two sizes of mottling, so no slope is one flat colour: stands of trees,
+  // scree, patches where the snow has gone.
+  const coarse = mx_noise_float(positionWorld.xz.mul(0.011)).mul(0.5).add(0.5);
+  const fine = mx_noise_float(positionWorld.xz.mul(0.035)).mul(0.5).add(0.5);
+
+  const forest = mix(colourUniform(GROUND_PALETTE.forest), colourUniform(GROUND_PALETTE.forestLight), coarse);
+  const rock = mix(colourUniform(GROUND_PALETTE.rockDark), colourUniform(GROUND_PALETTE.rock), fine);
+  const snow = colourUniform(GROUND_PALETTE.snow);
+
+  let colour = mix(landColour(terrain, town, country), forest, smoothstep(4, 60, h));
+  // Too steep to hold soil: rock, at any height.
+  colour = mix(colour, rock, smoothstep(0.38, 0.62, steep));
+  // Above the tree line.
+  colour = mix(colour, rock, smoothstep(0.4, 0.6, high).mul(0.75));
+  // Snow on the tops, broken up by the mottling, and never on a cliff face.
+  const snowLine = smoothstep(0.6, 0.76, high.add(fine.sub(0.5).mul(0.08)));
+  colour = mix(colour, snow, snowLine.mul(float(1).sub(smoothstep(0.42, 0.7, steep))));
+  material.colorNode = colour.mul(cloudShadow());
+
+  const mesh = new Mesh(geometry, material);
+  mesh.name = 'landscape';
+  mesh.receiveShadow = true;
+  // It would cast into a shadow map that only covers the 520 m round the
+  // look-at point, which the hills are almost never inside, and nothing is
+  // culled: casting cost eighty-six thousand triangles a frame for nothing.
+  mesh.castShadow = false;
+  // A hair above the land disc where the two meet on the plain's edge.
+  mesh.position.y = LAYER_Y.ground + 0.02;
   mesh.frustumCulled = false;
   return mesh;
 }

@@ -36,11 +36,11 @@ export function createInstanceColorMaterial(clouds = false): MeshLambertNodeMate
  * lighter than the shirt, trousers are darker. Three tones, still one
  * instance, still one draw call.
  */
-export function createTintedInstanceMaterial(): MeshLambertNodeMaterial {
+export function createTintedInstanceMaterial(clouds = false): MeshLambertNodeMaterial {
   const material = new MeshLambertNodeMaterial();
   const colour = varying(attribute('iColor', 'vec3'));
   const tint = varying(attribute('color', 'vec3'));
-  material.colorNode = colour.mul(tint);
+  material.colorNode = clouds ? colour.mul(tint).mul(cloudShadow()) : colour.mul(tint);
   return material;
 }
 

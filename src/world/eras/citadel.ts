@@ -13,6 +13,7 @@ import {
 } from '@/world/lots';
 import { LAYER_Y } from '@/world/ground';
 import { buildRoadGraph, createGraph, largestComponent, type RoadGraph } from '@/world/roads';
+import { buildParks, type ParkStyle } from '@/world/parks';
 import { buildRoofscape, type RoofStyle } from '@/world/roofscape';
 import { buildStreetscape, type StreetStyle } from '@/world/streetscape';
 import { buildFacade, type FacadeStyle } from '@/world/facade';
@@ -90,6 +91,17 @@ const PALETTE: EraPalette = {
   roundShare: 0.55,
   bush: 0x5c8440,
   bushesPerTree: 0.55,
+  streetTrees: { share: 0.34, spacingM: 13 },
+  // Ox carts, handcarts and nothing that paints. The lane keeps a record of
+  // where the wheels go, and nothing grows between them in a street this busy.
+  marks: {
+    kind: 'ruts',
+    line: 0x7a6a4f,
+    centre: 0x7a6a4f,
+    ink: 0.42,
+    centreInk: 0,
+    crossingShare: 0,
+  },
   // No street lighting in 1800.
   lamps: false,
   // Oil lamps, not the grid: a few dim windows, and most of the town dark.
@@ -372,6 +384,20 @@ const FACADE_STYLE: FacadeStyle = {
   },
 };
 
+/**
+ * A garden in the manner of the court: sanded paths, a square lotus pond
+ * with a stone kerb, and flowers in the colours of the roofs.
+ */
+const PARK_STYLE: ParkStyle = {
+  lawn: [0x7c9a50, 0x84a156],
+  path: 0xc4b58f,
+  centre: 'pond',
+  stone: 0x9e9484,
+  water: 0x4d8784,
+  flowers: [0xe58fa8, 0xf2d16b, 0xd96b6b],
+  bench: 0x6b4a32,
+};
+
 function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   const shape = { pitchM: CITADEL.pitchM, streetWidthM: CITADEL.laneWidthM, avenueCount: 0, ringWidthM: 9 };
   const grid = buildRoadGraph(rng, terrain, shape);
@@ -491,6 +517,7 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildStreetscape(rng, roads, all, STREET_STYLE));
   yield;
   structures.push(...buildFacade(rng, all, FACADE_STYLE));
+  structures.push(...buildParks(all, PARK_STYLE));
 
   return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
 }

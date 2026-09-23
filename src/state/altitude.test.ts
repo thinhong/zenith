@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { AGENTS, altitudeBand, detailFactor, DETAIL, fogRange, smoothstep } from './altitude';
+import {
+  AGENTS,
+  ALTITUDE,
+  altitudeBand,
+  detailFactor,
+  DETAIL,
+  fogRange,
+  NEAR_CUT,
+  nearCutRange,
+  smoothstep,
+} from './altitude';
 
 describe('altitudeBand', () => {
   it('maps metres to bands in order', () => {
@@ -53,5 +63,20 @@ describe('thought fade', () => {
     // figures appear far higher up than thoughts do, so a label can never
     // arrive before the person under it
     expect(DETAIL.thoughts.offM).toBeLessThan(AGENTS.figuresMaxM);
+  });
+});
+
+describe('nearCutRange', () => {
+  it('never reaches the point the camera is looking at', () => {
+    for (let altitudeM = ALTITUDE.min; altitudeM <= ALTITUDE.max; altitudeM += 7) {
+      const { fromM, toM } = nearCutRange(altitudeM);
+      expect(fromM).toBeLessThan(toM);
+      expect(toM).toBeLessThan(altitudeM * 0.5);
+    }
+  });
+
+  it('stops growing past the street, so a tower top far below is left alone', () => {
+    expect(nearCutRange(300)).toEqual({ fromM: NEAR_CUT.maxM, toM: NEAR_CUT.fadeMaxM });
+    expect(nearCutRange(ALTITUDE.max)).toEqual({ fromM: NEAR_CUT.maxM, toM: NEAR_CUT.fadeMaxM });
   });
 });

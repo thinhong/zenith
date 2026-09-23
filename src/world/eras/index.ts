@@ -1,6 +1,7 @@
 import type { ThoughtSet } from '@/thoughts/content';
 import type { InteriorStyle } from '@/world/interior';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
+import type { MarkingStyle } from '@/world/markings';
 import type { RoadGraph } from '@/world/roads';
 import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
@@ -57,7 +58,7 @@ export const ERA_LABELS: Readonly<Record<EraId, { name: string; stamp: string }>
  * is drawn at every altitude for now: cutting it changes the average tone of
  * every wall it is on, and `DETAIL` in state/altitude.ts has the measurement.
  */
-export type StructureKind = 'box' | 'roof' | 'gable' | 'hue' | 'tank' | 'flat' | 'trim';
+export type StructureKind = 'box' | 'roof' | 'gable' | 'hue' | 'tank' | 'flat' | 'trim' | 'round';
 
 export interface Structure {
   kind: StructureKind;
@@ -104,6 +105,19 @@ export interface EraPalette {
   roundShare: number;
   bush: number;
   bushesPerTree: number;
+  /**
+   * Trees planted along ordinary streets: how many streets get a row, and how
+   * far apart the trees stand. Avenues always had them; streets never did,
+   * and in 2020 that left 687 of 739 edges bare, so the opening view was a
+   * heavy grid of empty grey stripes. A planted street is the single most
+   * recognisable thing about a city seen from the air.
+   */
+  streetTrees: { share: number; spacingM: number };
+  /**
+   * What is painted on the roads or worn into them (world/markings.ts): lane
+   * lines and crossings, strips of light, or the ruts carts leave.
+   */
+  marks: MarkingStyle;
   /** Street lamps belong to an era that has them. */
   lamps: boolean;
   /** Fraction of windows lit after dark, and how brightly they burn. */
