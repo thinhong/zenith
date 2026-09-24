@@ -91,6 +91,8 @@ export const PLAN = {
   dropUpToM: 60,
   /** How far past the edge of town lattices are laid, so nothing inside is missed. */
   latticeReachM: 80,
+  /** Ground kept between a lake and a main road, the ring, the edge of town, or another lake. */
+  lakeClearM: 18,
 } as const;
 
 export type RoadPattern = 'grid' | 'radial';
@@ -200,6 +202,43 @@ export interface PlanStyle {
   ribbon: { reachM: number; parcel: ParcelStyle } | null;
   /** An open square in the middle of the core, with a street round it. */
   square: { wM: number; dM: number; lot: 'park' | null } | null;
+  /**
+   * Lakes inside the town: how many, how big, and how far out, as a share of
+   * the town's reach. Each lies in the middle of a district, clear of the
+   * main roads, and the lanes stop at its edge. Left out, none.
+   */
+  lakes?: { count: number; radiusM: readonly [number, number]; at: readonly [number, number] };
+}
+
+/**
+ * A lake inside the town (PlanStyle.lakes): a round shape pushed in and out
+ * by a few slow waves, so no two are the same and none is a circle.
+ */
+export interface Lake {
+  x: number;
+  z: number;
+  radiusM: number;
+  /** Waves round the edge: how many times round, how far in and out as a share of the radius, and where. */
+  lobes: readonly { k: number; amp: number; phase: number }[];
+}
+
+/** How far the edge of a lake is from its middle, in a direction. */
+export function lakeRadiusAt(lake: Lake, angle: number): number {
+  let r = 1;
+  for (const lobe of lake.lobes) r += lobe.amp * Math.sin(lobe.k * angle + lobe.phase);
+  return lake.radiusM * r;
+}
+
+/** How far inside the nearest lake a point is, in metres; negative outside all of them. */
+export function lakeDepthAt(lakes: readonly Lake[], x: number, z: number): number {
+  let depth = -Infinity;
+  for (const lake of lakes) {
+    const dx = x - lake.x;
+    const dz = z - lake.z;
+    const d = Math.hypot(dx, dz);
+    depth = Math.max(depth, lakeRadiusAt(lake, Math.atan2(dz, dx)) - d);
+  }
+  return depth;
 }
 
 /** Open ground the lot placer keeps clear. */
@@ -224,6 +263,8 @@ export interface TownPlan {
   ring: Point[];
   /** The name of the district at a point, or null. For the tests and the HUD. */
   districtAt: (x: number, z: number) => string | null;
+  /** The lakes inside the town. */
+  lakes: Lake[];
 }
 
 /** Region codes. Districts count up from 1. */
@@ -297,7 +338,10 @@ export function planTown(rng: Rng, terrain: TerrainSpec, style: PlanStyle): Town
  */
 export function* planSteps(rng: Rng, terrain: TerrainSpec, style: PlanStyle): Generator<void, TownPlan, void> {
   const water = terrain.water;
-  const dry = (x: number, z: number): boolean => waterDepthAt(water, x, z) < -ROADS.bankMarginM;
+  // The lakes are placed once the main roads are known; until then there are none.
+  const lakes: Lake[] = [];
+  const dry = (x: number, z: number): boolean =>
+    waterDepthAt(water, x, z) < -ROADS.bankMarginM && (lakes.length === 0 || lakeDepthAt(lakes, x, z) < -ROADS.bankMarginM);
   const noise = createNoise2D(rng);
   const R = terrain.cityRadiusM * style.outline.share;
   const core = style.core;
@@ -327,6 +371,54 @@ export function* planSteps(rng: Rng, terrain: TerrainSpec, style: PlanStyle): Ge
     const wander = c.amp * Math.sin(r * c.freq + c.phase);
     return Math.min(gap * 0.85, Math.max(gap * 0.15, gap / 2 + wander));
   };
+
+  // --- lakes ---------------------------------------------------------------------
+  // Each in the middle of half a wedge, between a main road and the street
+  // down the middle of the wedge, so neither is cut; outside the ring, inside
+  // the edge, clear of the sea or the river and of each other.
+  if (style.lakes && n > 1) {
+    const spec = style.lakes;
+    for (let tries = 0; tries < 60 && lakes.length < spec.count; tries++) {
+      const k = Math.floor(rng() * n);
+      const a = arterials[k];
+      const b = arterials[(k + 1) % n];
+      if (!a || !b) continue;
+      const r = R * range(rng, spec.at[0], spec.at[1]);
+      const off = collectorOffset(k, r);
+      const gap = wrap(curveAngle(b, r) - curveAngle(a, r)) || TAU;
+      const first = rng() < 0.5;
+      const from = curveAngle(a, r) + (first ? 0 : off);
+      const width = first ? off : gap - off;
+      const angle = from + width / 2;
+      // Room across the half-wedge, less a lane's clearance each side.
+      const across = r * Math.sin(Math.min(Math.PI / 2, width / 2)) - PLAN.lakeClearM;
+      const radiusM = Math.min(range(rng, spec.radiusM[0], spec.radiusM[1]), across);
+      if (radiusM < spec.radiusM[0] * 0.7) continue;
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
+      if (r - radiusM * 1.25 < ringAt(angle) + PLAN.lakeClearM) continue;
+      if (r + radiusM * 1.25 > outlineAt(angle) - PLAN.lakeClearM) continue;
+      const lake: Lake = {
+        x,
+        z,
+        radiusM,
+        lobes: [
+          { k: 2, amp: range(rng, 0.06, 0.14), phase: range(rng, 0, TAU) },
+          { k: 3, amp: range(rng, 0.04, 0.1), phase: range(rng, 0, TAU) },
+          { k: 5, amp: range(rng, 0.02, 0.05), phase: range(rng, 0, TAU) },
+        ],
+      };
+      let clear = true;
+      for (let i = 0; i < 24 && clear; i++) {
+        const t = (i / 24) * TAU;
+        const edge = lakeRadiusAt(lake, t) + PLAN.lakeClearM;
+        if (waterDepthAt(water, x + Math.cos(t) * edge, z + Math.sin(t) * edge) > -ROADS.bankMarginM) clear = false;
+      }
+      if (!clear) continue;
+      if (lakes.some((other) => Math.hypot(other.x - x, other.z - z) < (other.radiusM + radiusM) * 1.3 + PLAN.lakeClearM * 2)) continue;
+      lakes.push(lake);
+    }
+  }
 
   // --- the square in the middle ----------------------------------------------
   const turn = core.turnRad ?? range(rng, 0, Math.PI / 2);
@@ -584,6 +676,7 @@ export function* planSteps(rng: Rng, terrain: TerrainSpec, style: PlanStyle): Ge
       if (region >= 1) return districts[region - 1]?.name ?? null;
       return null;
     },
+    lakes,
   };
 }
 

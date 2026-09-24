@@ -47,6 +47,14 @@ export interface Lot extends Rect {
    * old default.
    */
   yardM?: number;
+  /**
+   * A walled front garden between the building and its street, for an era
+   * that builds them (world/gardens.ts): how deep it is, and how far its wall
+   * runs past each side of the building. Unset where there is none.
+   */
+  garden?: { depthM: number; sideM: number };
+  /** Water in an open lot, which nobody stands in: a park's pond (world/water-gardens.ts). */
+  ponds?: readonly { x: number; z: number; radiusM: number }[];
 }
 
 /**

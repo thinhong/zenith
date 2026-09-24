@@ -3,6 +3,7 @@ import type { OrientedRect } from '@/world/geometry2d';
 import type { InteriorStyle } from '@/world/interior';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import type { MarkingStyle } from '@/world/markings';
+import type { Lake } from '@/world/plan';
 import type { RoadGraph } from '@/world/roads';
 import type { Rng } from '@/world/seed';
 import type { TerrainSpec } from '@/world/terrain';
@@ -128,6 +129,40 @@ export interface EraPalette {
   windowTint: readonly [number, number, number];
   building: Readonly<Record<LotUse, readonly number[]>>;
   clothes: readonly number[];
+  /**
+   * Share of trees that are slender and many-stemmed, the kind planted in a
+   * small garden, rather than a cone or a round crown (world/props.ts). None
+   * when left out.
+   */
+  multiStemShare?: number;
+  /** Trees out on the meadows: how many groups, and how many in each. Left out, the usual woods. */
+  country?: { clumps: number; perClump: number };
+  /** False for an era that plants its parks itself (EraLayout.trees). */
+  parkGrid?: boolean;
+  /** The air over this era's land. Left out, the same air as every other era. */
+  air?: EraAir;
+}
+
+/**
+ * The air, the water and the woods, for an era that wants its land calmer
+ * than the rest (2300). Everything here multiplies or blends into what the
+ * sky already does by the hour (world/sky.ts), so the day still turns; and it
+ * cross-fades with the era.
+ */
+export interface EraAir {
+  /** How far the fog's colour goes toward the mist by day, 0 to 1. The sky takes a share of it. */
+  mist: number;
+  mistColour: number;
+  /** Multiply how far off the haze starts and where it is complete (state/altitude.ts fogRange). */
+  fogNear: number;
+  fogFar: number;
+  /** Multiply the sun's strength and the sky light's: less sun and more sky is an overcast morning. */
+  sun: number;
+  ambient: number;
+  /** How still the water lies, 0 to 1: less foam, swell and ripple, and less of the shallows' green. */
+  calm: number;
+  /** Share of the woods on the hills left standing. */
+  woods: number;
 }
 
 export interface VehicleKind {
@@ -165,7 +200,7 @@ export interface EraLayout {
   cityRadiusM: number;
   /**
    * What somebody on foot cannot walk through besides the buildings: a wall,
-   * a moat, a keep, the foot of a spire (walk/town.ts). None for an era with
+   * a moat, a keep, a garden wall, a lantern (walk/town.ts). None for an era with
    * nothing of the kind.
    */
   barriers?: OrientedRect[];
@@ -173,6 +208,26 @@ export interface EraLayout {
   landmarks?: Readonly<Record<string, Landmark>>;
   /** The wall round the town, for an era that has one: inside it or out. */
   enclosure?: { shape: 'square' | 'circle'; halfM: number };
+  /** Trees the era plants itself, in its own gardens, on top of the ones world/props.ts places. */
+  trees?: readonly EraTree[];
+  /** Ground no tree is planted on: a pond, a deck. */
+  treeless?: (x: number, z: number) => boolean;
+  /** Water inside the town, which nobody on foot walks into (walk/town.ts). */
+  wet?: (x: number, z: number) => boolean;
+  /** Lakes inside the town (world/plan.ts), drawn with the sea's water (world/ground.ts). */
+  lakes?: readonly Lake[];
+}
+
+/** A tree an era plants itself. */
+export interface EraTree {
+  x: number;
+  z: number;
+  radiusM: number;
+  heightM: number;
+  /** Several slender stems rather than one trunk. */
+  stems: boolean;
+  /** Its own leaf colour, when it is not the era's green. */
+  colour?: number;
 }
 
 export interface Landmark {

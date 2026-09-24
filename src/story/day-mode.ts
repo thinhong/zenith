@@ -1,9 +1,8 @@
 import { Vector3 } from 'three';
 import { clipPlanesFor, type CameraRig, type ViewState } from '@/core/camera';
-import { buildWalkPath } from '@/agents/paths';
 import { WALK, smoothstep } from '@/state/altitude';
 import { createActors, type ActorPlace } from '@/story/actors';
-import { castPlaces, type Spot } from '@/story/cast';
+import { castPlaces, wayBetween, type Spot } from '@/story/cast';
 import { dayFor } from '@/story/days';
 import { createGuide } from '@/story/guide';
 import { createRun, type Run } from '@/story/run';
@@ -15,7 +14,9 @@ import { createWalker, walkFovDeg } from '@/walk/walker';
 import type { EraLayout } from '@/world/eras';
 import { createGridIndex, distanceToSegment, rectBounds, toRectFrame } from '@/world/geometry2d';
 import { LAYER_Y } from '@/world/ground';
-import { nearestNode, PAVEMENT_M, type RoadGraph } from '@/world/roads';
+import { PAVEMENT_M, type RoadGraph } from '@/world/roads';
+import { toLocal } from '@/world/frame';
+import type { Lot } from '@/world/lots';
 import type { World } from '@/world/world';
 
 /**
@@ -59,6 +60,8 @@ export const DAY = {
    */
   standOutWithinM: 1.5,
   standOutM: 3,
+  /** Inside a walled garden there is no room out front: they wait this far to the side instead. */
+  standBesideM: 1.8,
 } as const;
 
 export interface DayMode {
@@ -102,7 +105,9 @@ function speakers(beats: readonly Beat[], into: Set<string>): void {
 
 /**
  * Flat pieces lower than this are something to stand on: a square, a lawn, a
- * path, a plinth, a bridge. Roof decks are the flat pieces higher up.
+ * path, a plinth, a bridge. Roof decks are the flat pieces higher up. And a
+ * box or a disc on the ground no taller than this is a step up onto it: a
+ * deck, a bridge plank, an island.
  */
 const UNDERFOOT_MAX_M = 0.6;
 
@@ -121,7 +126,11 @@ function surfaceOf(layout: EraLayout): (x: number, z: number) => number {
     const pad = edge.widthM / 2 + PAVEMENT_M;
     index.insert(i, Math.min(a.x, b.x) - pad, Math.min(a.z, b.z) - pad, Math.max(a.x, b.x) + pad, Math.max(a.z, b.z) + pad);
   });
-  const flats = layout.structures.filter((each) => each.kind === 'flat' && each.y < UNDERFOOT_MAX_M);
+  const flats = layout.structures.filter(
+    (each) =>
+      (each.kind === 'flat' && each.y < UNDERFOOT_MAX_M) ||
+      ((each.kind === 'box' || each.kind === 'round') && each.y === 0 && each.hM <= UNDERFOOT_MAX_M),
+  );
   const first = roads.edges.length;
   flats.forEach((flat, j) => {
     const box = rectBounds(flat);
@@ -133,8 +142,13 @@ function surfaceOf(layout: EraLayout): (x: number, z: number) => number {
       if (i >= first) {
         const flat = flats[i - first];
         if (!flat) return;
+        const top = flat.kind === 'flat' ? flat.y : flat.y + flat.hM;
+        if (flat.kind === 'round') {
+          if (Math.hypot(x - flat.x, z - flat.z) <= flat.wM / 2) y = Math.max(y, top);
+          return;
+        }
         const local = toRectFrame(flat, x, z);
-        if (Math.abs(local.x) <= flat.wM / 2 && Math.abs(local.z) <= flat.dM / 2) y = Math.max(y, flat.y);
+        if (Math.abs(local.x) <= flat.wM / 2 && Math.abs(local.z) <= flat.dM / 2) y = Math.max(y, top);
         return;
       }
       const edge = roads.edges[i];
@@ -161,6 +175,7 @@ export function createDayMode(options: DayModeOptions): DayMode {
   let run: Run | null = null;
   let spots: Record<string, Spot> = {};
   let roads: RoadGraph | null = null;
+  let lotsById: ReadonlyMap<number, Lot> = new Map();
   let heightAt: (x: number, z: number) => number = () => 0;
   let clockWasPaused = false;
 
@@ -254,11 +269,16 @@ export function createDayMode(options: DayModeOptions): DayMode {
           standOutScene = view.sceneIndex;
           standOut = Math.hypot(spot.x - walker.x, spot.z - walker.z) < DAY.standOutWithinM;
         }
-        const out = standOut ? DAY.standOutM : 0;
-        const baseX = spot.x + spot.faceX * out;
-        const baseZ = spot.z + spot.faceZ * out;
-        const faceX = standOut ? -spot.faceX : spot.faceX;
-        const faceZ = standOut ? -spot.faceZ : spot.faceZ;
+        // Out in front, facing back at you; or, behind a garden wall, to one side.
+        const beside = standOut && spot.approach !== undefined;
+        const sideX = -spot.faceZ;
+        const sideZ = spot.faceX;
+        const out = standOut && !beside ? DAY.standOutM : 0;
+        const across = beside ? DAY.standBesideM : 0;
+        const baseX = spot.x + spot.faceX * out + sideX * across;
+        const baseZ = spot.z + spot.faceZ * out + sideZ * across;
+        const faceX = beside ? -sideX : standOut ? -spot.faceX : spot.faceX;
+        const faceZ = beside ? -sideZ : standOut ? -spot.faceZ : spot.faceZ;
         for (const id of here) {
           const who = cast(id);
           if (!who || who.kind === 'voice') continue;
@@ -384,6 +404,20 @@ export function createDayMode(options: DayModeOptions): DayMode {
     sweep = { from, to: toHour, s: 0 };
   }
 
+  /** The place of the day whose walled garden (x, z) is in, if any. */
+  function gardenAround(x: number, z: number): Spot | null {
+    for (const spot of Object.values(spots)) {
+      if (!spot.approach) continue;
+      const lot = lotsById.get(spot.lotId);
+      const garden = lot?.garden;
+      if (!lot || !garden) continue;
+      const local = toLocal(lot, x, z);
+      const inFront = local.z < -lot.dM / 2 + 0.2 && local.z > -(lot.dM / 2 + garden.depthM) - 0.2;
+      if (inFront && Math.abs(local.x) < lot.wM / 2 + garden.sideM + 0.2) return spot;
+    }
+    return null;
+  }
+
   function routeGuide(): void {
     if (!run || !roads) return;
     const view = run.view();
@@ -399,15 +433,11 @@ export function createDayMode(options: DayModeOptions): DayMode {
       pathScene = view.sceneIndex;
       return;
     }
-    const path = buildWalkPath(roads, {
-      fromX: walker.x,
-      fromZ: walker.z,
-      toX: spot.x,
-      toZ: spot.z,
-      fromNode: nearestNode(roads, walker.x, walker.z),
-      toNode: nearestNode(roads, spot.x, spot.z),
-      laneM: 0,
-    });
+    // Out through the gate of whatever garden you are standing in, and in
+    // through the gate of the one you are going to.
+    const inside = gardenAround(walker.x, walker.z);
+    const from = { x: walker.x, z: walker.z, approach: inside?.approach };
+    const path = wayBetween(roads, from, spot);
     guide.setPath(path.x, path.z);
     pathScene = view.sceneIndex;
     rerouteS = 0;
@@ -508,6 +538,7 @@ export function createDayMode(options: DayModeOptions): DayMode {
       const layout = world.layout();
       const ground: Ground = townGround(layout, world.terrain);
       roads = layout.roads;
+      lotsById = new Map(layout.lots.map((lot) => [lot.id, lot]));
       heightAt = surfaceOf(layout);
       spots = castPlaces(found, layout, world.terrain, ground, options.seed);
       run = createRun(found);
@@ -531,7 +562,17 @@ export function createDayMode(options: DayModeOptions): DayMode {
         run.skipTo(first);
         const scene = run.view().scene;
         const spot = scene ? spots[scene.at] : undefined;
-        if (spot) {
+        if (spot?.approach) {
+          // At the gate, looking in at the door.
+          const dx = spot.x - spot.approach.x;
+          const dz = spot.z - spot.approach.z;
+          const length = Math.hypot(dx, dz) || 1;
+          walker.place(spot.approach.x, spot.approach.z, dx / length, dz / length);
+        } else if (spot && spot.lotId < 0) {
+          // A landmark faces the view it is there for: stand a few steps
+          // behind it and look the same way.
+          walker.place(spot.x - spot.faceX * 4, spot.z - spot.faceZ * 4, spot.faceX, spot.faceZ);
+        } else if (spot) {
           // A few steps short of the place, looking at it.
           walker.place(spot.x + spot.faceX * 5, spot.z + spot.faceZ * 5, -spot.faceX, -spot.faceZ);
         }

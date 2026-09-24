@@ -1,8 +1,10 @@
 import { BufferAttribute, BufferGeometry, CircleGeometry, Color, Group, Mesh } from 'three';
 import {
   attribute,
+  cameraPosition,
   clamp,
   float,
+  length,
   min,
   mix,
   mx_noise_float,
@@ -10,6 +12,7 @@ import {
   normalize,
   normalWorld,
   positionWorld,
+  pow,
   sin,
   smoothstep,
   transformNormalToView,
@@ -18,12 +21,13 @@ import {
   vec2,
   vec3,
 } from 'three/tsl';
-import { MeshLambertNodeMaterial, MeshPhongNodeMaterial } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshPhongNodeMaterial, type Node } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloudShadow, FIELDS, fieldTone, townToCountry, weatherTime } from '@/world/atmosphere';
 import { createForest } from '@/world/forest-mesh';
 import { buildForest, buildLandscapeGrid, type LandscapeGrid } from '@/world/landscape';
 import { mulberry32 } from '@/world/seed';
+import { lakeRadiusAt, type Lake } from '@/world/plan';
 import { centrelinePoint, TERRAIN, type TerrainSpec, type WaterSpec } from '@/world/terrain';
 
 /**
@@ -95,6 +99,12 @@ function colourUniform(value: number | Color) {
 }
 type ColourUniform = ReturnType<typeof colourUniform>;
 
+/** A number the era can rewrite, read by a material. */
+function numberUniform(value: number) {
+  return uniform(value);
+}
+type NumberUniform = ReturnType<typeof numberUniform>;
+
 export interface Ground {
   group: Group;
   /**
@@ -103,6 +113,108 @@ export interface Ground {
    * the era changes.
    */
   setColours: (town: Color, country: Color, water: Color) => void;
+  /** How still the water lies, 0 to 1 (EraAir.calm). */
+  setCalm: (calm: number) => void;
+  /** The colour of the sky, which still water holds when it is looked at from low down. */
+  setSky: (sky: Color) => void;
+  /** Share of the woods on the hills left standing (EraAir.woods). */
+  setWoods: (share: number) => void;
+  /** Low mist lying over the water and the plain, 0 for none, and its colour (EraAir.mist). */
+  setMist: (strength: number, colour: Color) => void;
+  /**
+   * The lakes of one era's town, as a group for that era's own scene graph:
+   * it comes and goes with the era, and its water is the sea's.
+   */
+  lakes: (lakes: readonly Lake[]) => Group;
+}
+
+/**
+ * Low mist, for an era that has it (EraAir.mist): two layers lying over the
+ * water (the sea or the river, and the lakes in a town), broken into
+ * drifting banks by noise. They fade out close to the eye, so from the
+ * street they are a band of mist over the water rather than a ceiling, and
+ * they thin out from high up, where a whole sea under a blanket reads as
+ * cloud rather than as a calm morning. Only over water: a sheet over the
+ * land showed from above as a pale disc with the town cut out of it.
+ */
+export const MIST_SHEETS = {
+  layers: [
+    { heightM: 12, scaleM: 300, drift: 0.55, share: 1 },
+    { heightM: 34, scaleM: 520, drift: -0.35, share: 0.6 },
+  ],
+  /**
+   * Over a lake in town: two thin sheets just off the water, below the eye of
+   * somebody on the bank, so what they veil is the water and the foot of the
+   * far shore. Wisps, not banks: the noise is finer than a lake is wide. They
+   * are for somebody down there, and gone by the roof band. The one sheet
+   * this used to be, four metres up at the sea's scale of noise, sat over
+   * every lake as one even film: milk by day and pink at dusk from the air,
+   * and from the bank it was above the eye and faced away from it, so it
+   * could not be seen at all.
+   */
+  lake: {
+    sheets: [
+      { heightM: 0.6, scaleM: 34, drift: 0.22, share: 0.75 },
+      { heightM: 1.2, scaleM: 58, drift: -0.16, share: 0.6 },
+    ],
+    nearM: 6,
+    fullM: 45,
+    highFromM: 40,
+    highToM: 220,
+    highShare: 0,
+  },
+  /** Nothing within this far of the eye, and all of it past the second. */
+  nearM: 60,
+  fullM: 360,
+  /** The noise between these is the edge of a bank. */
+  bank: [0.36, 0.76] as const,
+  /** Most a sheet is ever opaque. */
+  opacity: 0.6,
+  /** All of it below the first height, and this share of it left above the second. */
+  highFromM: 900,
+  highToM: 2200,
+  highShare: 0.25,
+  renderOrder: 6,
+} as const;
+
+/** How near the eye a sheet starts, and how high the eye can go before it thins. */
+interface MistReach {
+  nearM: number;
+  fullM: number;
+  highFromM: number;
+  highToM: number;
+  highShare: number;
+}
+
+function mistMaterial(
+  colour: ColourUniform,
+  strength: NumberUniform,
+  layer: { scaleM: number; drift: number; share: number },
+  reach: MistReach = MIST_SHEETS,
+): MeshBasicNodeMaterial {
+  const material = new MeshBasicNodeMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+  material.colorNode = colour;
+  const drift = vec2(weatherTime.mul(layer.drift), weatherTime.mul(layer.drift * 0.6));
+  const noise = mx_noise_float(positionWorld.xz.div(layer.scaleM).add(drift)).mul(0.5).add(0.5);
+  const banks = smoothstep(MIST_SHEETS.bank[0], MIST_SHEETS.bank[1], noise);
+  const offEye = smoothstep(reach.nearM, reach.fullM, length(positionWorld.xz.sub(cameraPosition.xz)));
+  const high = float(1).sub(smoothstep(reach.highFromM, reach.highToM, cameraPosition.y).mul(1 - reach.highShare));
+  material.opacityNode = banks.mul(offEye).mul(high).mul(strength).mul(MIST_SHEETS.opacity * layer.share);
+  return material;
+}
+
+function mistMesh(geometry: BufferGeometry, material: MeshBasicNodeMaterial, heightM: number, name: string): Mesh {
+  const mesh = new Mesh(geometry, material);
+  mesh.name = name;
+  mesh.position.y = heightM;
+  mesh.renderOrder = MIST_SHEETS.renderOrder;
+  mesh.frustumCulled = false;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.castsNoShadow = true;
+  return mesh;
 }
 
 export function createGround(
@@ -117,16 +229,16 @@ export function createGround(
   const townColour = colourUniform(town);
   const countryColour = colourUniform(country);
   const waterColour = colourUniform(water);
+  const calm = numberUniform(0);
+  const sky = colourUniform(0xffffff);
   const landMesh = createLand(terrain, townColour, countryColour);
-  const waterMesh = createWater(terrain, waterColour);
+  const waterMesh = createWater(terrain, waterColour, calm, sky);
   const grid = buildLandscapeGrid(terrain, mulberry32(0x5eed));
-  group.add(
-    landMesh,
-    createBanks(terrain),
-    waterMesh,
-    createLandscape(grid, terrain, townColour, countryColour),
-    createForest(buildForest(terrain, grid, mulberry32(0xf0e5))),
-  );
+  const forest = createForest(buildForest(terrain, grid, mulberry32(0xf0e5)));
+  const mistColour = colourUniform(0xffffff);
+  const mistStrength = numberUniform(0);
+  const mist = createMist(terrain, mistColour, mistStrength);
+  group.add(landMesh, createBanks(terrain), waterMesh, createLandscape(grid, terrain, townColour, countryColour), forest.group, mist);
 
   return {
     group,
@@ -135,7 +247,63 @@ export function createGround(
       countryColour.value.copy(nextCountry);
       waterColour.value.copy(nextWater);
     },
+    setCalm: (value) => {
+      calm.value = value;
+    },
+    setSky: (colour) => {
+      sky.value.copy(colour);
+    },
+    setWoods: (share) => forest.setShare(share),
+    setMist: (strength, colour) => {
+      mistStrength.value = strength;
+      mistColour.value.copy(colour);
+      mist.visible = strength > 0.01;
+    },
+    lakes: (lakes) => {
+      const out = new Group();
+      out.name = 'lakes';
+      if (lakes.length === 0) return out;
+      const surface = lakeGeometry(lakes);
+      const fromBankM = varying(attribute('fromBank', 'float'));
+      const lake = varying(attribute('lake', 'vec3'));
+      const water = new Mesh(surface, waterMaterial(fromBankM, waterColour, calm, sky, { lake }));
+      water.name = 'lake-water';
+      water.receiveShadow = true;
+      const edgeMaterial = new MeshLambertNodeMaterial();
+      edgeMaterial.colorNode = colourUniform(LAKE_LOOK.edge).mul(cloudShadow());
+      const edge = new Mesh(lakeEdgeGeometry(lakes), edgeMaterial);
+      edge.name = 'lake-edge';
+      edge.receiveShadow = true;
+      out.add(edge, water);
+      const mistSurface = lakeGeometry(lakes);
+      for (const sheet of MIST_SHEETS.lake.sheets) {
+        const lakeMist = mistMesh(mistSurface, mistMaterial(mistColour, mistStrength, sheet, MIST_SHEETS.lake), sheet.heightM, `lake-mist-${sheet.heightM}`);
+        lakeMist.visible = true;
+        out.add(lakeMist);
+      }
+      // Nothing here casts a shadow, and the era's group would otherwise tell it to.
+      out.traverse((object) => {
+        object.userData.castsNoShadow = true;
+      });
+      return out;
+    },
   };
+}
+
+function createMist(terrain: TerrainSpec, colour: ColourUniform, strength: NumberUniform): Group {
+  const group = new Group();
+  group.name = 'mist';
+  group.visible = false;
+  const water = terrain.water;
+  const centre = waterCentreline(water);
+  const river = water.kind === 'river';
+  const inner = offsetLine(water, centre, river ? -water.halfWidthM : 0);
+  const outer = offsetLine(water, centre, river ? water.halfWidthM : TERRAIN.waterReachM);
+  const geometry = ribbonGeometry(inner, outer, 0);
+  for (const layer of MIST_SHEETS.layers) {
+    group.add(mistMesh(geometry, mistMaterial(colour, strength, layer), layer.heightM, `mist-${layer.heightM}`));
+  }
+  return group;
 }
 
 /**
@@ -220,6 +388,8 @@ function acrossAttribute(pairs: number): BufferAttribute {
 function createWater(
   terrain: TerrainSpec,
   colour: ColourUniform,
+  calm: NumberUniform,
+  sky: ColourUniform,
 ): Mesh<BufferGeometry, MeshPhongNodeMaterial> {
   const water = terrain.water;
   const centre = waterCentreline(water);
@@ -230,7 +400,39 @@ function createWater(
   const outer = offsetLine(water, centre, river ? water.halfWidthM : TERRAIN.waterReachM);
   const geometry = ribbonGeometry(inner, outer, LAYER_Y.water);
   geometry.setAttribute('across', acrossAttribute(Math.min(inner.length, outer.length)));
+  const across = varying(attribute('across', 'float'));
+  const fromBankM = river
+    ? min(across, float(1).sub(across)).mul(water.halfWidthM * 2)
+    : across.mul(TERRAIN.waterReachM);
+  const mesh = new Mesh(geometry, waterMaterial(fromBankM, colour, calm, sky));
+  mesh.name = 'water';
+  return mesh;
+}
 
+/**
+ * The water's surface, for anything that knows how far each point is from
+ * its bank: the sea or the river, and the lakes an era keeps in its town.
+ * It spends that distance on three things: a pale shallow band where the
+ * bottom shows, a line of foam that comes in and goes out along the edge,
+ * and a highlight where the surface turns the sun back at the eye.
+ */
+/**
+ * A lake, as each point of its water knows it: the middle it is round, and
+ * its radius, so the water can work out where a reflected ray meets the far
+ * bank (see `waterMaterial`).
+ */
+interface Banked {
+  /** x and z of the lake's middle, and its radius, per vertex. */
+  lake: Node<'vec3'>;
+}
+
+function waterMaterial(
+  fromBankM: Node<'float'>,
+  colour: ColourUniform,
+  calm: NumberUniform,
+  sky: ColourUniform,
+  banked?: Banked,
+): MeshPhongNodeMaterial {
   const material = new MeshPhongNodeMaterial();
   // The water is a few centimetres above the land it covers (LAYER_Y), and
   // from the top of the range the far sea is kilometres off, where a depth
@@ -244,10 +446,6 @@ function createWater(
   material.shininess = 320;
   material.specular = new Color(SHORE_PALETTE.glint);
 
-  const across = varying(attribute('across', 'float'));
-  const fromBankM = river
-    ? min(across, float(1).sub(across)).mul(water.halfWidthM * 2)
-    : across.mul(TERRAIN.waterReachM);
   // Two sizes of noise: a small one that frays the foam line, and a wide slow
   // one that keeps open water from being one flat colour.
   const fray = mx_noise_float(positionWorld.xz.mul(0.07));
@@ -255,26 +453,175 @@ function createWater(
   const swell = mx_noise_float(positionWorld.xz.mul(0.022).add(drift));
   const lap = sin(weatherTime.mul((Math.PI * 2) / SHORE.lapS).add(fray.mul(2.2))).mul(0.5).add(0.5);
 
-  const shallow = mix(colour.mul(1.18), colourUniform(SHORE_PALETTE.shallow), 0.42);
+  // Still water (EraAir.calm) keeps less of everything that says the sea is
+  // moving: the foam, the swell, the ripples, and the green of the shallows,
+  // which a lake under mist does not have.
+  const moving = float(1).sub(calm);
+  const shallow = mix(colour.mul(1.18), colourUniform(SHORE_PALETTE.shallow), moving.mul(0.25).add(0.17));
   let surface = mix(shallow, colour.mul(0.94), smoothstep(0, SHORE.shallowM, fromBankM));
   const foam = float(1).sub(
     smoothstep(SHORE.foamM * 0.3, lap.mul(SHORE.lapM).add(SHORE.foamM), fromBankM.add(fray.mul(0.8))),
   );
-  surface = mix(surface, colourUniform(SHORE_PALETTE.foam), foam.mul(0.78));
-  surface = surface.mul(swell.mul(0.05).add(1));
+  surface = mix(surface, colourUniform(SHORE_PALETTE.foam), foam.mul(moving.mul(0.7).add(0.08)));
+  surface = surface.mul(swell.mul(moving.mul(0.04).add(0.01)).add(1));
+  // Still water holds the sky when it is looked at from low down, and less
+  // and less of it the more steeply it is looked into: a mirror at the eye's
+  // own height, its own colour from above. Only still water: at calm 0 this
+  // is nothing, and a moving sea is as it was.
+  const toEye = normalize(cameraPosition.sub(positionWorld));
+  const grazing = pow(float(1).sub(clamp(toEye.y, 0, 1)), 3);
+  const still = grazing.mul(calm).mul(0.85);
+  if (banked) {
+    // A still lake does not mirror only the sky. Seen from its bank, the
+    // reflected ray rises as steeply as the eye looks down, and for most of
+    // the water it meets the trees on the far side before it clears them:
+    // the water is dark with the far bank upside down in it, and only near
+    // the eye, where the eye looks down steeply, is it sky. Worked out
+    // against a ring of trees round the lake's own circle.
+    const B = BANK_MIRROR;
+    const flat = positionWorld.xz.sub(cameraPosition.xz);
+    const run = length(flat).max(0.01);
+    const along = flat.div(run);
+    const rise = cameraPosition.y.sub(positionWorld.y).max(0.01).div(run);
+    const offset = positionWorld.xz.sub(banked.lake.xy);
+    const b = along.dot(offset);
+    const c = offset.dot(offset).sub(banked.lake.z.mul(banked.lake.z));
+    const onward = b.negate().add(b.mul(b).sub(c).max(0).sqrt()).max(0);
+    const hit = positionWorld.xz.add(along.mul(onward));
+    // The line of the tree tops: rounded crowns on a rolling line, two sizes of noise.
+    const treesM = mx_noise_float(hit.div(B.noiseM))
+      .mul(B.jitterM)
+      .add(mx_noise_float(hit.div(B.crownM)).mul(B.crownJitterM))
+      .add(B.heightM);
+    const up = onward.mul(rise);
+    const trees = float(1).sub(smoothstep(treesM.mul(0.78), treesM, up));
+    // Their feet are darker than their crowns, and the far bank is further
+    // into the haze than the water is.
+    const wall = mix(colourUniform(B.foot), colourUniform(B.crown), up.div(treesM).clamp(0, 1));
+    const haze = smoothstep(B.hazeFromM, B.hazeToM, run.add(onward));
+    surface = mix(surface, mix(sky, mix(wall, sky, haze.mul(B.hazeShare)), trees), still);
+  } else {
+    surface = mix(surface, sky, still);
+  }
   material.colorNode = surface.mul(cloudShadow());
   // Small moving ripples tilt the surface a few degrees either way, so the
   // highlight breaks into glitter instead of lying on the sea as one disc.
   const wavelets = mx_noise_vec3(
     positionWorld.xz.mul(0.32).add(vec2(weatherTime.mul(0.23), weatherTime.mul(-0.17))),
   );
-  material.normalNode = transformNormalToView(
-    normalize(vec3(wavelets.x.mul(0.075), 1, wavelets.y.mul(0.075))),
-  );
+  const ripple = moving.mul(0.06).add(0.015);
+  material.normalNode = transformNormalToView(normalize(vec3(wavelets.x.mul(ripple), 1, wavelets.y.mul(ripple))));
+  return material;
+}
 
-  const mesh = new Mesh(geometry, material);
-  mesh.name = 'water';
-  return mesh;
+/**
+ * The lakes an era keeps inside its town (world/plan.ts Lake), with the same
+ * water as the sea and a band of pale stone round each. One mesh for all of
+ * them. Rings from the edge in to the middle carry each point's distance
+ * from the bank, which is what the water spends on its shallows.
+ */
+/**
+ * What still water shows of the bank across it (`waterMaterial`): trees about
+ * this tall, give or take, their feet and their crowns, and how far off the
+ * far bank goes into the haze.
+ */
+export const BANK_MIRROR = {
+  heightM: 11,
+  jitterM: 3,
+  noiseM: 16,
+  crownM: 4.5,
+  crownJitterM: 1.6,
+  foot: 0x2f3b2c,
+  crown: 0x5a6b4c,
+  hazeFromM: 60,
+  hazeToM: 700,
+  hazeShare: 0.75,
+} as const;
+
+export const LAKE_LOOK = {
+  segments: 96,
+  /** From the edge in, as shares of the way to the middle. */
+  rings: [0, 0.12, 0.3, 0.55, 0.8] as const,
+  /**
+   * The stones round a lake, how wide. Grey and a little green, as stones at
+   * a water's edge are: pale and even, the edge read as the coping of a pool.
+   */
+  edgeM: 1.5,
+  edge: 0xaeab9b,
+} as const;
+
+function lakeGeometry(lakes: readonly Lake[]): BufferGeometry {
+  const positions: number[] = [];
+  const fromBank: number[] = [];
+  const which: number[] = [];
+  const index: number[] = [];
+  const S = LAKE_LOOK.segments;
+  for (const lake of lakes) {
+    const base = positions.length / 3;
+    const rings = LAKE_LOOK.rings;
+    for (const share of rings) {
+      for (let i = 0; i < S; i++) {
+        const t = (i / S) * Math.PI * 2;
+        const edge = lakeRadiusAt(lake, t);
+        const r = edge * (1 - share);
+        positions.push(lake.x + Math.cos(t) * r, LAYER_Y.water, lake.z + Math.sin(t) * r);
+        fromBank.push(edge * share);
+        which.push(lake.x, lake.z, lake.radiusM);
+      }
+    }
+    const middle = base + rings.length * S;
+    positions.push(lake.x, LAYER_Y.water, lake.z);
+    fromBank.push(lake.radiusM);
+    which.push(lake.x, lake.z, lake.radiusM);
+    for (let ring = 0; ring < rings.length - 1; ring++) {
+      for (let i = 0; i < S; i++) {
+        const a = base + ring * S + i;
+        const b = base + ring * S + ((i + 1) % S);
+        const c = base + (ring + 1) * S + i;
+        const d = base + (ring + 1) * S + ((i + 1) % S);
+        // Counter-clockwise seen from above, so the faces point up.
+        index.push(a, c, b, b, c, d);
+      }
+    }
+    const last = base + (rings.length - 1) * S;
+    for (let i = 0; i < S; i++) index.push(last + i, middle, last + ((i + 1) % S));
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute('fromBank', new BufferAttribute(new Float32Array(fromBank), 1));
+  geometry.setAttribute('lake', new BufferAttribute(new Float32Array(which), 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function lakeEdgeGeometry(lakes: readonly Lake[]): BufferGeometry {
+  const positions: number[] = [];
+  const index: number[] = [];
+  const S = LAKE_LOOK.segments;
+  for (const lake of lakes) {
+    const base = positions.length / 3;
+    for (let i = 0; i < S; i++) {
+      const t = (i / S) * Math.PI * 2;
+      const edge = lakeRadiusAt(lake, t);
+      // From a little under the water's edge out onto the land.
+      for (const r of [edge - 0.6, edge + LAKE_LOOK.edgeM]) {
+        positions.push(lake.x + Math.cos(t) * r, LAYER_Y.bank, lake.z + Math.sin(t) * r);
+      }
+    }
+    for (let i = 0; i < S; i++) {
+      const a = base + i * 2;
+      const b = base + i * 2 + 1;
+      const c = base + ((i + 1) % S) * 2;
+      const d = base + ((i + 1) % S) * 2 + 1;
+      index.push(a, c, b, b, c, d);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 /**

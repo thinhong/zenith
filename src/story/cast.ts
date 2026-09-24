@@ -1,9 +1,12 @@
+import { buildWalkPath } from '@/agents/paths';
 import { WALK } from '@/state/altitude';
 import type { DayScript, PlaceSpec } from '@/story/script';
-import { canStand, type Ground } from '@/walk/body';
+import { canStand, inSight, type Ground } from '@/walk/body';
 import type { EraLayout } from '@/world/eras';
 import { toWorld } from '@/world/frame';
+import { gateApproach } from '@/world/gardens';
 import type { Lot } from '@/world/lots';
+import { nearestNode, type RoadGraph } from '@/world/roads';
 import { mulberry32, range } from '@/world/seed';
 import { centrelinePoint, type TerrainSpec } from '@/world/terrain';
 
@@ -24,6 +27,12 @@ export interface Spot {
   faceZ: number;
   /** The building this is the door of, or -1. */
   lotId: number;
+  /**
+   * Where the way in starts, on the road: outside the gate of a door behind a
+   * garden wall (world/gardens.ts), or at the edge of a park. The light goes
+   * through here, not over a wall or round a pond.
+   */
+  approach?: { x: number; z: number };
 }
 
 export const CAST = {
@@ -31,6 +40,8 @@ export const CAST = {
   doorM: [1.4, 2.4, 3.4],
   /** Parks: this far in from the edge the lot is entered by, at most. */
   parkInM: 6,
+  /** And that edge no further than this from a road: a park behind houses is not one to meet in. */
+  parkRoadM: 7,
   /** Wobble in the choice, so two seeds do not always pick the same kind of spot. */
   jitterM: 18,
   /** Search for somewhere to stand round a landmark, out to this far. */
@@ -58,26 +69,120 @@ function nudge(ground: Ground, x: number, z: number): { x: number; z: number } |
   return null;
 }
 
+/** The nearest point on any road to (x, z), pulled back to the road's edge on that side. */
+function roadEdgeNear(roads: RoadGraph, x: number, z: number): { x: number; z: number; distanceM: number } | null {
+  let best: { x: number; z: number; distanceM: number } | null = null;
+  for (const edge of roads.edges) {
+    const a = roads.nodes[edge.a];
+    const b = roads.nodes[edge.b];
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length2 = dx * dx + dz * dz || 1;
+    const t = Math.min(1, Math.max(0, ((x - a.x) * dx + (z - a.z) * dz) / length2));
+    const px = a.x + dx * t;
+    const pz = a.z + dz * t;
+    const d = Math.hypot(x - px, z - pz);
+    const toEdge = d - edge.widthM / 2;
+    if (best && toEdge >= best.distanceM) continue;
+    // On the road, a metre in from its edge, on the side the point is.
+    const k = d > 1e-6 ? Math.max(0, d - (edge.widthM / 2 - 1)) / d : 0;
+    best = { x: x + (px - x) * k, z: z + (pz - z) * k, distanceM: toEdge };
+  }
+  return best;
+}
+
 /** Where somebody waits for you at this lot: at its door, or inside it if it is a park. */
-function spotAt(lot: Lot, ground: Ground): Spot | null {
+function spotAt(lot: Lot, ground: Ground, roads: RoadGraph): Spot | null {
   if (lot.use === 'park') {
-    const inM = Math.min(lot.dM / 2 - 2, CAST.parkInM);
-    const at = toWorld(lot, 0, -Math.max(0, inM));
-    const centre = { x: lot.x - at.x, z: lot.z - at.z };
-    const length = Math.hypot(centre.x, centre.z) || 1;
+    // In from whichever side of it is nearest a road, not from its middle:
+    // the middle of a garden may be a pond, and its other sides may be the
+    // backs of houses.
+    const sides = [
+      { mx: 0, mz: -lot.dM / 2, nx: 0, nz: 1, depth: lot.dM },
+      { mx: 0, mz: lot.dM / 2, nx: 0, nz: -1, depth: lot.dM },
+      { mx: -lot.wM / 2, mz: 0, nx: 1, nz: 0, depth: lot.wM },
+      { mx: lot.wM / 2, mz: 0, nx: -1, nz: 0, depth: lot.wM },
+    ];
+    let chosen: { side: (typeof sides)[number]; road: { x: number; z: number; distanceM: number } } | null = null;
+    for (const side of sides) {
+      const mid = toWorld(lot, side.mx, side.mz);
+      const road = roadEdgeNear(roads, mid.x, mid.z);
+      if (road && (!chosen || road.distanceM < chosen.road.distanceM)) chosen = { side, road };
+    }
+    // A park with houses between it and every road is not somewhere to meet.
+    if (!chosen || chosen.road.distanceM > CAST.parkRoadM) return null;
+    const { side, road } = chosen;
+    const inM = Math.min(side.depth / 2, CAST.parkInM);
+    const at = toWorld(lot, side.mx + side.nx * inM, side.mz + side.nz * inM);
+    const ahead = toWorld(lot, side.mx + side.nx * (inM + 1), side.mz + side.nz * (inM + 1));
     const found = nudge(ground, at.x, at.z);
     if (!found) return null;
-    return { x: found.x, z: found.z, faceX: centre.x / length, faceZ: centre.z / length, lotId: lot.id };
+    // The way in is from that road, straight across the edge of the park:
+    // nothing in the way, and no water.
+    if (!canStand(ground, road.x, road.z, WALK.radiusM) || !inSight(ground, road.x, road.z, found.x, found.z)) return null;
+    const steps = Math.ceil(Math.hypot(found.x - road.x, found.z - road.z) / 0.8);
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (!ground.open(road.x + (found.x - road.x) * t, road.z + (found.z - road.z) * t)) return null;
+    }
+    return {
+      x: found.x,
+      z: found.z,
+      faceX: ahead.x - at.x,
+      faceZ: ahead.z - at.z,
+      lotId: lot.id,
+      approach: { x: road.x, z: road.z },
+    };
   }
+  const approach = gateApproach(lot);
   for (const out of CAST.doorM) {
+    // Inside the garden, when there is one: never on the far side of its wall.
+    if (lot.garden && out > lot.garden.depthM - 0.5) continue;
     const at = toWorld(lot, 0, -(lot.dM / 2 + out));
     if (!canStand(ground, at.x, at.z, WALK.radiusM)) continue;
     const faceX = at.x - lot.x;
     const faceZ = at.z - lot.z;
     const length = Math.hypot(faceX, faceZ) || 1;
-    return { x: at.x, z: at.z, faceX: faceX / length, faceZ: faceZ / length, lotId: lot.id };
+    const spot: Spot = { x: at.x, z: at.z, faceX: faceX / length, faceZ: faceZ / length, lotId: lot.id };
+    if (approach) spot.approach = approach;
+    return spot;
   }
   return null;
+}
+
+/**
+ * The way from one place to another the way the light leads (story/guide.ts):
+ * out through a garden gate if the start is behind one, along the roads, and
+ * in through the gate at the far end. Waypoints on the ground.
+ */
+export function wayBetween(
+  graph: RoadGraph,
+  from: { x: number; z: number; approach?: { x: number; z: number } },
+  to: { x: number; z: number; approach?: { x: number; z: number } },
+): { x: number[]; z: number[] } {
+  const start = from.approach ?? from;
+  const end = to.approach ?? to;
+  const road = buildWalkPath(graph, {
+    fromX: start.x,
+    fromZ: start.z,
+    toX: end.x,
+    toZ: end.z,
+    fromNode: nearestNode(graph, start.x, start.z),
+    toNode: nearestNode(graph, end.x, end.z),
+    laneM: 0,
+  });
+  const x = [...road.x];
+  const z = [...road.z];
+  if (from.approach) {
+    x.unshift(from.x);
+    z.unshift(from.z);
+  }
+  if (to.approach) {
+    x.push(to.x);
+    z.push(to.z);
+  }
+  return { x, z };
 }
 
 interface Candidate {
@@ -168,7 +273,7 @@ export function castPlaces(
           if (lot.use !== use || used.has(lot.id)) continue;
           if (use !== 'park' && (!lot.street || lot.heightM <= 0)) continue;
           if (!fits(spec, lot.x, lot.z)) continue;
-          const spot = spotAt(lot, ground);
+          const spot = spotAt(lot, ground, layout.roads);
           if (!spot || !fits(spec, spot.x, spot.z)) continue;
           candidates.push({ spot, score: scoreOf(spec, spot, lot) });
         }

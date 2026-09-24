@@ -7,8 +7,8 @@ import { waterDepthAt, type TerrainSpec } from '@/world/terrain';
 
 /**
  * The ground of one era's town, for walking on: every building, whatever
- * the era says cannot be walked through (walls, a moat), the water, and the
- * edge of the plain where the hills begin. The bridges over a river are the
+ * the era says cannot be walked through (walls, a moat), the water and the
+ * town's own ponds, and the edge of the plain where the hills begin. The bridges over a river are the
  * roads that cross it, and they can be walked.
  */
 export function townGround(layout: EraLayout, terrain: TerrainSpec): Ground {
@@ -33,8 +33,11 @@ export function townGround(layout: EraLayout, terrain: TerrainSpec): Ground {
 
   // Past here the roads have stopped and the land starts to climb.
   const edgeM = PLAN.countryStopM + 30;
+  const wet = layout.wet;
   const open = (x: number, z: number): boolean => {
     if (Math.hypot(x, z) > edgeM) return false;
+    // The town's own ponds, less their bridges and islands.
+    if (wet?.(x, z)) return false;
     if (waterDepthAt(terrain.water, x, z) < -WALK.shoreM) return true;
     return bridges.some((bridge) => distanceToSegment(x, z, bridge.ax, bridge.az, bridge.bx, bridge.bz) < bridge.halfM);
   };

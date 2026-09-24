@@ -88,6 +88,27 @@ export const DETAIL = {
 } as const;
 
 /**
+ * Trees are drawn in full near the eye and plainly past it (world/tree-mesh.ts).
+ * Measured from the eye, not the altitude: a tree's size on screen goes with
+ * how far it is from the camera, and on foot the camera is two metres up with
+ * a whole street of trees in front of it. From the roof band up nothing is
+ * this near, so none are drawn in full and the view from above costs what it
+ * did.
+ */
+export const TREE_DETAIL = {
+  /**
+   * In full nearer than this; plain past `farM`; between, one dissolves into
+   * the other. At 150 and 185 a street at eye level cost 0.6 million more
+   * triangles than the plain trees, for trees past a hundred metres whose
+   * leaves are too small to see.
+   */
+  nearM: 110,
+  farM: 140,
+  /** The eye moves this far before the trees are sorted again. */
+  resortM: 6,
+} as const;
+
+/**
  * Whatever comes between the camera and what it is looking at is cut away.
  *
  * The camera looks at a point on the ground, and its altitude is its

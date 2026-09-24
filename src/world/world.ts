@@ -14,7 +14,7 @@ import {
 import { createPeople, type People } from '@/agents/people';
 import { createMonsters, type Monsters } from '@/agents/monsters';
 import { createTraffic, type Traffic } from '@/agents/traffic';
-import { ALTITUDE, DETAIL, detailFactor, fogRange } from '@/state/altitude';
+import { ALTITUDE, DETAIL, detailFactor, fogRange, smoothstep } from '@/state/altitude';
 import type { ViewState } from '@/core/camera';
 import { advanceClock, createClock, localHour, type Clock } from '@/state/clock';
 import {
@@ -32,6 +32,7 @@ import {
   DEFAULT_ERA,
   eraById,
   type Era,
+  type EraAir,
   type EraId,
   type EraLayout,
 } from '@/world/eras';
@@ -45,6 +46,7 @@ import {
   type LotUse,
 } from '@/world/lots';
 import { collectProps, createProps, type Props } from '@/world/props';
+import { setTreeEye } from '@/world/tree-mesh';
 import { buildMarkings } from '@/world/markings';
 import { setNearCut } from '@/world/near-cut';
 import { createRoads } from '@/world/road-mesh';
@@ -114,6 +116,28 @@ export interface WorldOptions {
 }
 
 const SUN_DISTANCE_M = 1400;
+
+/** The air of an era that sets none: nothing blended, nothing multiplied. */
+const PLAIN_AIR: EraAir = {
+  mist: 0,
+  mistColour: 0xffffff,
+  fogNear: 1,
+  fogFar: 1,
+  sun: 1,
+  ambient: 1,
+  calm: 0,
+  woods: 1,
+};
+const MIST = {
+  /** The sky behind everything takes this share of the mist the fog takes. */
+  skyShare: 0.55,
+  /** How much of the mist is left at full night: most of it is a daytime thing. */
+  night: 0.15,
+  /** The haze is all there below `lowM`, and this share of it is gone by `highM`. */
+  lowM: 150,
+  highM: 1600,
+  highShare: 0.6,
+} as const;
 const SHADOW = { mapSize: 4096, extentM: 560, nearM: 200, farM: 3600 } as const;
 
 /** One era's own city: everything that sinks when the dial moves. */
@@ -249,14 +273,14 @@ export function createWorld({
       bushesPerTree: era.palette.bushesPerTree,
       streetTrees: era.palette.streetTrees,
       lamps: era.palette.lamps,
+      multiStemShare: era.palette.multiStemShare,
+      country: era.palette.country,
+      parkGrid: era.palette.parkGrid,
     };
-    const placements = collectProps(
-      mulberry32(seed + 17),
-      terrain,
-      layout.roads,
-      layout.lots,
-      propPalette,
-    );
+    const placements = collectProps(mulberry32(seed + 17), terrain, layout.roads, layout.lots, propPalette, {
+      trees: layout.trees,
+      treeless: layout.treeless,
+    });
     yield;
     const props = createProps(placements, propPalette);
 
@@ -265,6 +289,7 @@ export function createWorld({
     const structures = layout.structures.length > 0 ? createStructures(layout.structures) : null;
     const interiors = createInteriors();
     group.add(roads.group, buildings.group, props.group, interiors.group);
+    if (layout.lakes && layout.lakes.length > 0) group.add(ground.lakes(layout.lakes));
     if (structures) group.add(structures.group);
     group.traverse((object) => {
       object.castShadow = object.userData.castsNoShadow !== true;
@@ -440,6 +465,37 @@ export function createWorld({
   ground.setColours(fromTown, fromLand, fromWater);
 
   /**
+   * The air, cross-faded with the era the way the ground's colours are: the
+   * era being left, the era arriving, and how far between them the change is.
+   */
+  let airFrom: EraAir = first.palette.air ?? PLAIN_AIR;
+  let airTo: EraAir = airFrom;
+  const air: EraAir = { ...airFrom };
+  const mistFrom = new Color();
+  const mistTo = new Color();
+  const mist = new Color();
+  const blendAir = (t: number): void => {
+    const k = Math.min(1, Math.max(0, t));
+    const lerp = (a: number, b: number): number => a + (b - a) * k;
+    air.mist = lerp(airFrom.mist, airTo.mist);
+    air.fogNear = lerp(airFrom.fogNear, airTo.fogNear);
+    air.fogFar = lerp(airFrom.fogFar, airTo.fogFar);
+    air.sun = lerp(airFrom.sun, airTo.sun);
+    air.ambient = lerp(airFrom.ambient, airTo.ambient);
+    air.calm = lerp(airFrom.calm, airTo.calm);
+    air.woods = lerp(airFrom.woods, airTo.woods);
+    mistFrom.set(airFrom.mistColour);
+    mistTo.set(airTo.mistColour);
+    // An era with no mist lends the other its colour, so a fade is only of amount.
+    if (airFrom.mist <= 0) mistFrom.copy(mistTo);
+    if (airTo.mist <= 0) mistTo.copy(mistFrom);
+    mist.copy(mistFrom).lerp(mistTo, k);
+    ground.setCalm(air.calm);
+    ground.setWoods(air.woods);
+  };
+  blendAir(1);
+
+  /**
    * Starts building the era. The cross-fade begins once it is built, a few
    * frames later; until then the bar shows the stop as pending.
    */
@@ -496,6 +552,9 @@ export function createWorld({
     current.setRoadOpacity(0);
     setEraColours(leaving.era, fromTown, fromLand, fromWater);
     setEraColours(current.era, toTown, toLand, toWater);
+    airFrom = { ...air, mistColour: mist.getHex() };
+    airTo = current.era.palette.air ?? PLAIN_AIR;
+    blendAir(0);
     if (!beginEraChange(era, pending.id)) {
       // No cross-fade to run. `showEra` makes this unreachable, and it is
       // guarded anyway because the cost of being wrong is a world that never
@@ -507,6 +566,7 @@ export function createWorld({
       disposeGroup(leaving.group);
       leaving = null;
       reseatAgents();
+      blendAir(1);
     }
     pending = null;
   }
@@ -587,6 +647,7 @@ export function createWorld({
         blendLand.copy(fromLand).lerp(toLand, rise);
         blendWater.copy(fromWater).lerp(toWater, rise);
         ground.setColours(blendTown, blendLand, blendWater);
+        blendAir(rise);
 
         if (!era.reseated && era.progress >= RESEAT_AT) {
           era.reseated = true;
@@ -598,15 +659,29 @@ export function createWorld({
           leaving = null;
           current.group.scale.y = 1;
           current.setRoadOpacity(1);
+          blendAir(1);
         }
       }
 
       const sky = skyAt(clock.hourOfDay);
       applyRgb(background, sky.sky);
       applyRgb(fog.color, sky.fog);
+      // The era's air on top of the hour's: mist into the haze and a little
+      // into the sky, the haze nearer, softer sun and fuller sky light.
+      const misty = air.mist * (1 - sky.nightFactor * (1 - MIST.night));
+      if (misty > 0) {
+        fog.color.lerp(mist, misty);
+        background.lerp(mist, misty * MIST.skyShare);
+      }
+      // Mist lies low: all of it at eye height, and less of it the higher you
+      // look down through it from, so the view from the top of the range is
+      // not lost in it.
+      const lowness = 1 - MIST.highShare * smoothstep(MIST.lowM, MIST.highM, altitudeM);
       const range = fogRange(altitudeM);
-      fog.near = range.nearM;
-      fog.far = range.farM;
+      fog.near = range.nearM * (1 + (air.fogNear - 1) * lowness);
+      fog.far = range.farM * (1 + (air.fogFar - 1) * lowness);
+      ground.setSky(background);
+      ground.setMist(air.mist, fog.color);
 
       sun.target.position.set(view.targetX, 0, view.targetZ);
       sun.target.updateMatrixWorld();
@@ -617,14 +692,15 @@ export function createWorld({
       );
       sun.castShadow = altitudeM < DETAIL.shadowMaxM;
       applyRgb(sun.color, sky.sunColor);
-      sun.intensity = sky.sunIntensity;
+      sun.intensity = sky.sunIntensity * air.sun;
       applyRgb(ambient.color, sky.ambientColor);
       applyRgb(ambient.groundColor, sky.bounceColor);
-      ambient.intensity = sky.ambientIntensity;
+      ambient.intensity = sky.ambientIntensity * air.ambient;
 
       const night = sky.nightFactor;
       const windows = detailFactor(DETAIL.windows, altitudeM);
       const props = detailFactor(DETAIL.props, altitudeM);
+      setTreeEye(view.eyeX, view.eyeY, view.eyeZ);
       for (const world of [current, leaving]) {
         if (!world) continue;
         world.buildings.setNight(night);
@@ -632,6 +708,7 @@ export function createWorld({
         world.buildings.setFacade(detailFactor(DETAIL.facade, altitudeM));
         world.props.setNight(night);
         world.props.setDetail(props);
+        world.props.setEye(view.eyeX, view.eyeY, view.eyeZ);
         world.setRoadNight(night);
       }
 

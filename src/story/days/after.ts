@@ -13,8 +13,8 @@ export const AFTER_DAY: DayScript = {
     home: { kind: 'home', reach: [0.45, 0.85] },
     row: { kind: 'park', from: 'home', minM: 40, maxM: 210 },
     depot: { kind: 'work', from: 'row', minM: 100, maxM: 330 },
-    spire: { kind: 'landmark', landmark: 'spire' },
-    old: { kind: 'park', big: true, from: 'spire', minM: 80, maxM: 330 },
+    pond: { kind: 'landmark', landmark: 'pavilion' },
+    old: { kind: 'park', big: true, from: 'pond', minM: 80, maxM: 330 },
   },
   cast: {
     ada: { name: 'Ada', clothes: 0x5e9486 },
@@ -107,15 +107,15 @@ export const AFTER_DAY: DayScript = {
       ],
     },
     {
-      id: 'spire',
+      id: 'pond',
       hour: 13,
-      at: 'spire',
+      at: 'pond',
       with: 'kofi',
-      aim: [{ text: 'Lunch under the spire. The fountain is cool there.' }],
+      aim: [{ text: 'Lunch by the pond in the middle of town.' }],
       extras: [
         {
           who: 'cat',
-          at: 'spire',
+          at: 'pond',
           offset: [2.6, 1.8],
           talk: [
             { think: 'A grey cat with one white paw, asleep in the sun.' },

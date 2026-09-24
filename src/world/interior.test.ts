@@ -78,6 +78,16 @@ describe('spotOutside', () => {
     }
   });
 
+  it('keeps everybody out of a park\'s pond, and still on the lot', () => {
+    const garden: Lot = { ...square, wM: 40, dM: 32, ponds: [{ x: square.x, z: square.z + 2, radiusM: 7 }] };
+    for (let i = 0; i < 400; i++) {
+      const spot = spotOutside(garden, i * 0.137, OUTDOOR_SPREAD.park);
+      expect(Math.hypot(spot.x - square.x, spot.z - (square.z + 2))).toBeGreaterThan(7);
+      expect(Math.abs(spot.x - garden.x)).toBeLessThan(garden.wM / 2);
+      expect(Math.abs(spot.z - garden.z)).toBeLessThan(garden.dM / 2);
+    }
+  });
+
   it('spreads a crowd round the lot instead of onto its centre', () => {
     const quadrants = new Set<string>();
     let onCentre = 0;

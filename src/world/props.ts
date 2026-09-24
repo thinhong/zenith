@@ -1,26 +1,8 @@
-import {
-  BufferAttribute,
-  BoxGeometry,
-  BufferGeometry,
-  Color,
-  ConeGeometry,
-  CylinderGeometry,
-  IcosahedronGeometry,
-  Group,
-  InstancedMesh,
-  Material,
-  MeshBasicMaterial,
-} from 'three';
+import { BoxGeometry, Color, CylinderGeometry, Group, InstancedMesh, Material, MeshBasicMaterial, type BufferGeometry } from 'three';
 import { uniform } from 'three/tsl';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { cloudShadow } from '@/world/atmosphere';
-import {
-  attachInstanceColors,
-  createTintedInstanceMaterial,
-  paletteToLinear,
-  writeInstanceMatrix,
-} from '@/world/instanced';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { writeInstanceMatrix } from '@/world/instanced';
 import type { Lot } from '@/world/lots';
 import { endClearM, PAVEMENT_M, roadChains, walkChain, type RoadGraph } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
@@ -30,12 +12,13 @@ import { onParkPlan, parkPlan } from '@/world/parks';
 import { toWorld } from '@/world/frame';
 import { createGridIndex, distanceToSegment, pointRectDistance, rectBounds } from '@/world/geometry2d';
 import { isBuildable, TERRAIN, type TerrainSpec } from '@/world/terrain';
+import { createTreeMeshes } from '@/world/tree-mesh';
 
 /**
- * Trees and street lamps. Four instanced meshes for the lot: trunks, canopies,
- * lamp posts and lamp heads. The heads are unlit material whose colour is
- * driven by the day clock, which is how a lamp "comes on" without a point light
- * (PLAN.md M1 task 6).
+ * Trees and street lamps: where they go, and the lamps themselves. The trees
+ * are drawn by world/tree-mesh.ts, near and far. The lamp heads are unlit
+ * material whose colour is driven by the day clock, which is how a lamp
+ * "comes on" without a point light (PLAN.md M1 task 6).
  */
 export const PROPS = {
   parkSpacingM: 13,
@@ -56,6 +39,10 @@ export const PROPS = {
   countrysideClumps: 130,
   treesPerClump: 7,
   clumpRadiusM: 45,
+  /** A slender tree of several stems against a single-trunked one of the same draw. */
+  slender: { radius: 1.05, height: 0.66 },
+  /** Behind a house with a front garden, the chance of a second tree in the back. */
+  backTreeShare: 0.5,
 } as const;
 
 const FIXED = { post: 0x3a3a3c, lampOff: 0x4a4740 } as const;
@@ -78,6 +65,25 @@ export interface PropPalette {
   streetTrees: { share: number; spacingM: number };
   /** Street lamps belong to an era that has them. */
   lamps: boolean;
+  /** Share of trees that are slender and many-stemmed (eras/index.ts EraPalette). */
+  multiStemShare?: number;
+  /** Trees out on the meadows, when an era wants other than the usual woods. */
+  country?: { clumps: number; perClump: number };
+  /** False when the era plants its parks itself. */
+  parkGrid?: boolean;
+}
+
+/** What an era adds to, and keeps out of, the planting (EraLayout.trees, EraLayout.treeless). */
+export interface PropExtras {
+  trees?: readonly {
+    x: number;
+    z: number;
+    radiusM: number;
+    heightM: number;
+    stems: boolean;
+    colour?: number;
+  }[];
+  treeless?: (x: number, z: number) => boolean;
 }
 
 export interface Props {
@@ -86,6 +92,8 @@ export interface Props {
   setNight: (night: number) => void;
   /** 0 from satellite height: props are too small to be worth drawing. */
   setDetail: (detail: number) => void;
+  /** Where the eye is: the trees near it are drawn in full (world/tree-mesh.ts). */
+  setEye: (x: number, y: number, z: number) => void;
   treeCount: number;
   lampCount: number;
 }
@@ -113,6 +121,10 @@ function collectBushes(rng: Rng, trees: readonly Placement[], perTree: number): 
 interface Placement {
   /** True if this one takes the rounder crown rather than the cone. */
   round?: boolean;
+  /** True for a slender tree of several stems, which takes neither. */
+  stems?: boolean;
+  /** Its own leaf colour, instead of the era's green. */
+  colour?: number;
   /**
    * How far this tree's green is from its era's, as a multiplier. No two
    * trees in a real wood are the same colour, and a whole town of one green
@@ -144,8 +156,25 @@ export function collectProps(
   graph: RoadGraph,
   lots: readonly Lot[],
   palette: PropPalette,
+  extras: PropExtras = {},
 ): PropPlacements {
-  const trees = collectTrees(rng, terrain, graph, lots, palette);
+  const trees = collectTrees(rng, terrain, graph, lots, palette, extras.treeless);
+  for (const tree of extras.trees ?? []) {
+    if (trees.length >= PROPS.maxTrees) break;
+    const placed: Placement = {
+      x: tree.x,
+      y: 0,
+      z: tree.z,
+      radiusM: tree.radiusM,
+      heightM: tree.heightM,
+      rotY: (tree.x * 0.37 + tree.z * 0.61) % (Math.PI * 2),
+      round: true,
+      stems: tree.stems,
+      tint: 0.9 + (((tree.x * 7.3 + tree.z * 3.1) % 1) + 1) % 1 * 0.2,
+    };
+    if (tree.colour !== undefined) placed.colour = tree.colour;
+    trees.push(placed);
+  }
   return {
     trees,
     lamps: palette.lamps ? collectLamps(graph) : [],
@@ -153,182 +182,22 @@ export function collectProps(
   };
 }
 
-/** Bakes a brightness into a geometry's vertices, for the tinted material. */
-function tintedPart(source: BufferGeometry, shade: number): BufferGeometry {
-  const geometry = source.index ? source.toNonIndexed() : source;
-  const count = geometry.getAttribute('position').count;
-  const colors = new Float32Array(count * 3).fill(shade);
-  geometry.setAttribute('color', new BufferAttribute(colors, 3));
-  return geometry;
-}
-
-function mergeParts(parts: BufferGeometry[]): BufferGeometry {
-  const merged = mergeGeometries(parts);
-  if (!merged) throw new Error('could not merge a crown');
-  return merged;
-}
-
-/**
- * A conifer: three tiers, each turned against the one below so the facets do
- * not line up, darker at the base where the lower branches are shaded and
- * lighter at the tip where the sun reaches. It used to be one eight-sided
- * cone, which is a party hat. Unit space: base radius 1 at y = 0, tip at 1.
- */
-function coniferGeometry(): BufferGeometry {
-  const tiers = [
-    { radius: 1.0, height: 0.58, bottom: 0.0, shade: 0.84, closed: true },
-    { radius: 0.76, height: 0.52, bottom: 0.3, shade: 1.0, closed: false },
-    { radius: 0.5, height: 0.44, bottom: 0.56, shade: 1.16, closed: false },
-  ];
-  return mergeParts(
-    tiers.map((tier, i) => {
-      const cone = new ConeGeometry(tier.radius, tier.height, 9, 1, !tier.closed);
-      cone.rotateY(i * 0.61);
-      cone.translate(0, tier.bottom + tier.height / 2, 0);
-      return tintedPart(cone, tier.shade);
-    }),
-  );
-}
-
-/**
- * A broadleaf crown: six lobes rather than one ball. A single twenty-sided
- * shape of this size is a die, whatever colour it is painted; a cluster of
- * them, shaded underneath and lit on top, is foliage. Deliberately lopsided,
- * three lobes round a core rather than four, because a symmetrical tree reads
- * as a model. Unit space: about plus and minus half across, 0.1 to 0.9 tall.
- */
-function broadleafGeometry(): BufferGeometry {
-  const lobes: { r: number; x: number; y: number; z: number; shade: number }[] = [
-    { r: 0.3, x: 0, y: 0.44, z: 0, shade: 0.9 },
-    { r: 0.23, x: 0.26, y: 0.37, z: 0.02, shade: 0.8 },
-    { r: 0.22, x: -0.14, y: 0.38, z: 0.23, shade: 0.78 },
-    { r: 0.22, x: -0.12, y: 0.36, z: -0.24, shade: 0.82 },
-    { r: 0.25, x: 0.04, y: 0.64, z: -0.02, shade: 1.16 },
-    { r: 0.18, x: 0.17, y: 0.57, z: 0.16, shade: 1.06 },
-  ];
-  return mergeParts(
-    lobes.map((lobe, i) => {
-      const ball = new IcosahedronGeometry(lobe.r, 0);
-      ball.rotateY(i * 1.3);
-      ball.rotateX(i * 0.7);
-      ball.translate(lobe.x, lobe.y, lobe.z);
-      return tintedPart(ball, lobe.shade);
-    }),
-  );
-}
-
-/** Writes each tree's own green into an instanced crown. */
-function tintCrowns(mesh: InstancedMesh, trees: readonly Placement[], base: number): void {
-  const colours = attachInstanceColors(mesh, Math.max(trees.length, 1));
-  const linear = paletteToLinear([base]);
-  for (let i = 0; i < trees.length; i++) {
-    const tint = trees[i]?.tint ?? 1;
-    // A little warmer as it gets lighter and cooler as it gets darker, the
-    // way a real canopy varies, rather than one hue at different brightness.
-    colours[i * 3] = (linear[0] ?? 0.2) * tint * (0.94 + tint * 0.06);
-    colours[i * 3 + 1] = (linear[1] ?? 0.3) * tint;
-    colours[i * 3 + 2] = (linear[2] ?? 0.15) * tint * (1.06 - tint * 0.06);
-  }
-}
-
 export function createProps(placements: PropPlacements, palette: PropPalette): Props {
-  const trees = placements.trees;
-
   const group = new Group();
   group.name = 'props';
 
-  // Three sides, not five. A trunk is 40 cm wide and was costing twenty
-  // triangles each; across the citadel's five thousand trees that was a third
-  // of every triangle in the world, for something under a pixel from 200 m.
-  // Five sides now, not three. A trunk is thin, but a three-sided one shows
-  // its flat face whenever the sun is on it.
-  const trunkGeometry = new CylinderGeometry(1, 1, 1, 5);
-  trunkGeometry.translate(0, 0.5, 0);
-  // A shrub is a metre across. Detail 1 on something that size is eighty
-  // triangles for a blob; detail 0 is twenty and looks the same from 40 m up.
-  const bushGeometry = new IcosahedronGeometry(0.5, 0);
-  bushGeometry.translate(0, 0.45, 0);
+  // Trees and shrubs, near and far (world/tree-mesh.ts, world/tree-geometry.ts).
+  const trees = createTreeMeshes(placements.trees, placements.bushes, {
+    canopy: palette.canopy,
+    canopyRound: palette.canopyRound,
+    trunk: palette.trunk,
+    bush: palette.bush,
+  });
+  group.add(trees.group);
+
   const postGeometry = new CylinderGeometry(1, 1, 1, 3);
   postGeometry.translate(0, 0.5, 0);
   const headGeometry = new BoxGeometry(1, 1, 1);
-
-  // Trunks are a third of the tree; the canopy sits on top of them.
-  if (trees.length > 0) {
-    group.add(
-      instanced(
-        trunkGeometry,
-        lambert(palette.trunk),
-        trees,
-        'tree-trunks',
-        (t) => t.radiusM * 0.12,
-        (t) => t.heightM * 0.38,
-        () => 0,
-      ),
-    );
-  }
-
-  /**
-   * Two crowns, not one.
-   *
-   * The second shape, the shrubs, `canopyRound`, `roundShare`, `bush` and
-   * `bushesPerTree` were all written, all set by all three eras, and none of
-   * them were ever drawn: `createProps` built the geometry and then never
-   * passed it to `instanced`, and never read `placements.bushes` at all. So
-   * every tree in every era was the same cone and there was not one shrub in
-   * the world, which is exactly the plantation the comment above says the
-   * second shape exists to avoid.
-   */
-  const cones = trees.filter((tree) => !tree.round);
-  const rounds = trees.filter((tree) => tree.round);
-  if (cones.length > 0) {
-    const material = createTintedInstanceMaterial(true);
-    material.flatShading = true;
-    material.maskNode = nearCutMask();
-    const mesh = instanced(
-      coniferGeometry(),
-      material,
-      cones,
-      'tree-canopies',
-      (t) => t.radiusM,
-      (t) => t.heightM * 0.7,
-      (t) => t.heightM * 0.34,
-    );
-    tintCrowns(mesh, cones, palette.canopy);
-    group.add(mesh);
-  }
-  if (rounds.length > 0) {
-    const material = createTintedInstanceMaterial(true);
-    material.flatShading = true;
-    material.maskNode = nearCutMask();
-    const mesh = instanced(
-      broadleafGeometry(),
-      material,
-      rounds,
-      'tree-crowns',
-      // Wider and lower than a cone of the same tree: a round crown that
-      // keeps the cone's proportions reads as a lollipop.
-      (t) => t.radiusM * 2.3,
-      (t) => t.heightM * 0.72,
-      (t) => t.heightM * 0.3,
-    );
-    tintCrowns(mesh, rounds, palette.canopyRound);
-    group.add(mesh);
-  }
-
-  const bushes = placements.bushes;
-  if (bushes.length > 0) {
-    group.add(
-      instanced(
-        bushGeometry,
-        lambert(palette.bush, true),
-        bushes,
-        'bushes',
-        (b) => b.radiusM * 2,
-        (b) => b.heightM,
-        () => 0,
-      ),
-    );
-  }
 
   const lamps = placements.lamps;
   const headMaterial = new MeshBasicMaterial({ color: new Color(FIXED.lampOff) });
@@ -355,7 +224,8 @@ export function createProps(placements: PropPlacements, palette: PropPalette): P
       // A hard cut: at this altitude a tree is a fraction of a pixel.
       group.visible = detail > 0.02;
     },
-    treeCount: trees.length,
+    setEye: trees.setEye,
+    treeCount: placements.trees.length,
     lampCount: lamps.length,
   };
 }
@@ -366,27 +236,41 @@ function collectTrees(
   graph: RoadGraph,
   lots: readonly Lot[],
   palette: PropPalette,
+  treeless?: (x: number, z: number) => boolean,
 ): Placement[] {
   const trees: Placement[] = [];
+  const slenderShare = palette.multiStemShare ?? 0;
 
-  const plant = (x: number, z: number): void => {
+  const plant = (x: number, z: number, slender = true): void => {
     if (trees.length >= PROPS.maxTrees) return;
+    if (treeless?.(x, z)) return;
+    // Drawn in the same order as always, so every other era's trees come out
+    // as they did; the stems are drawn last, and only for an era that has any.
+    const radiusM = range(rng, 2.2, 4) * palette.canopyScale;
+    const heightM = range(rng, 8, 13) * palette.canopyScale;
+    const rotY = range(rng, 0, Math.PI * 2);
+    const round = rng() < palette.roundShare;
+    const tint = range(rng, 0.82, 1.14);
+    const stems = slender && slenderShare > 0 && rng() < slenderShare;
     trees.push({
       x,
       y: 0,
       z,
-      radiusM: range(rng, 2.2, 4) * palette.canopyScale,
-      heightM: range(rng, 8, 13) * palette.canopyScale,
-      rotY: range(rng, 0, Math.PI * 2),
-      round: rng() < palette.roundShare,
-      tint: range(rng, 0.82, 1.14),
+      // A garden tree is lower than a street tree, and its crown is wide for
+      // its height: it is several trunks, not one.
+      radiusM: stems ? radiusM * PROPS.slender.radius : radiusM,
+      heightM: stems ? heightM * PROPS.slender.height : heightM,
+      rotY,
+      round,
+      tint,
+      stems,
     });
   };
 
   // Parks: a loose grid inside the lot, kept off the paths and out of the
   // middle, which is where parks.ts puts the things people walk to.
   for (const lot of lots) {
-    if (lot.use !== 'park') continue;
+    if (lot.use !== 'park' || palette.parkGrid === false) continue;
     const plan = parkPlan(lot);
     const rows = Math.max(1, Math.floor(lot.dM / PROPS.parkSpacingM));
     const cols = Math.max(1, Math.floor(lot.wM / PROPS.parkSpacingM));
@@ -412,6 +296,27 @@ function collectTrees(
   for (const lot of lots) {
     if (lot.use === 'park' || lot.heightM <= 0) continue;
     if (rng() >= palette.courtyardChance) continue;
+    // A walled front garden (world/gardens.ts) takes its tree in front, where
+    // it is seen over the wall, and off the stones from the gate to the door.
+    const garden = lot.garden;
+    if (garden && lot.street === true) {
+      const count = garden.depthM > 2.4 && lot.wM > 7.5 && rng() < 0.7 ? 2 : 1;
+      const first = rng() < 0.5 ? -1 : 1;
+      for (let k = 0; k < count; k++) {
+        const side = k === 0 ? first : -first;
+        const reachM = lot.wM / 2 + garden.sideM - 0.9;
+        const localX = side * range(rng, Math.min(1.3, reachM), reachM);
+        const localZ = -(lot.dM / 2 + garden.depthM * range(rng, 0.38, 0.62));
+        const at = toWorld(lot, localX, localZ);
+        plant(at.x, at.z);
+      }
+      // And often one in the back, over the roof from the street.
+      if (rng() < PROPS.backTreeShare) {
+        const back = toWorld(lot, range(rng, -lot.wM / 3, lot.wM / 3), lot.dM / 2 + range(rng, 2, 4));
+        plant(back.x, back.z);
+      }
+      continue;
+    }
     const side = rng() < 0.5 ? -1 : 1;
     const alongX = lot.street === true ? false : rng() < 0.5;
     const reach = (alongX ? lot.wM : lot.dM) / 2 + range(rng, 2, 5);
@@ -456,6 +361,7 @@ function collectTrees(
     // however many pieces a curving street is cut into.
     if (rng() >= st.share) continue;
     const round = rng() < palette.roundShare;
+    const stems = slenderShare > 0 && rng() < slenderShare;
     const size = range(rng, 0.72, 0.95);
     let carry = range(rng, 0, st.spacingM * 0.5);
     for (const step of walkChain(graph, chain)) {
@@ -482,10 +388,11 @@ function collectTrees(
             z: a.z + dz * t + dx * offset * side,
             // Nearly uniform along one street, with the small differences a
             // row of real trees of one age still has.
-            radiusM: 2.6 * size * range(rng, 0.94, 1.06) * palette.canopyScale,
-            heightM: 9 * size * range(rng, 0.94, 1.06) * palette.canopyScale,
+            radiusM: 2.6 * size * range(rng, 0.94, 1.06) * palette.canopyScale * (stems ? PROPS.slender.radius : 1),
+            heightM: 9 * size * range(rng, 0.94, 1.06) * palette.canopyScale * (stems ? PROPS.slender.height : 1),
             rotY: range(rng, 0, Math.PI * 2),
             round,
+            stems,
             tint: range(rng, 0.94, 1.05),
           });
         }
@@ -506,14 +413,16 @@ function collectTrees(
   const outer = TERRAIN.mountainInnerM * LANDSCAPE.plainShare;
   const edgeAt = townEdge(lots, terrain.cityRadiusM);
   const blocked = builtUp(graph, lots);
-  for (let i = 0; i < PROPS.countrysideClumps; i++) {
+  const clumps = palette.country?.clumps ?? PROPS.countrysideClumps;
+  const perClump = palette.country?.perClump ?? PROPS.treesPerClump;
+  for (let i = 0; i < clumps; i++) {
     const angle = range(rng, 0, Math.PI * 2);
     const inner = edgeAt(angle) + 40;
     if (inner >= outer - 10) continue;
     const radius = range(rng, inner, outer);
     const cx = Math.cos(angle) * radius;
     const cz = Math.sin(angle) * radius;
-    for (let k = 0; k < PROPS.treesPerClump; k++) {
+    for (let k = 0; k < perClump; k++) {
       const x = cx + range(rng, -PROPS.clumpRadiusM, PROPS.clumpRadiusM);
       const z = cz + range(rng, -PROPS.clumpRadiusM, PROPS.clumpRadiusM);
       // isBuildable also rejects the water, which is what matters out here.
@@ -521,7 +430,8 @@ function collectTrees(
       if (fromCentreM < edgeAt(Math.atan2(z, x)) + 20 || fromCentreM > outer) continue;
       if (!isBuildable({ ...terrain, cityRadiusM: outer + PROPS.clumpRadiusM }, x, z, 12)) continue;
       if (blocked(x, z)) continue;
-      plant(x, z);
+      // Out on the meadow a tree stands in its own round shape, not a garden's.
+      plant(x, z, false);
     }
   }
 

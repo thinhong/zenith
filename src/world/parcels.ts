@@ -9,7 +9,7 @@ import {
 } from '@/world/geometry2d';
 import { toWorld } from '@/world/frame';
 import { ensureTemple, pickUse, type Lot, type LotProfile, type LotUse } from '@/world/lots';
-import type { ParcelStyle, TownPlan } from '@/world/plan';
+import { lakeDepthAt, type ParcelStyle, type TownPlan } from '@/world/plan';
 import { PAVEMENT_M } from '@/world/roads';
 import { range, type Rng } from '@/world/seed';
 import { waterDepthAt, type TerrainSpec } from '@/world/terrain';
@@ -152,6 +152,7 @@ export function* parcelSteps(
       if (!plan.parcelAt(p.x, p.z)) return false;
       if (options.allowed && !options.allowed(p.x, p.z)) return false;
       if (waterDepthAt(terrain.water, p.x, p.z) > -PARCELS.waterClearM) return false;
+      if (plan.lakes.length > 0 && lakeDepthAt(plan.lakes, p.x, p.z) > -PARCELS.waterClearM) return false;
     }
     return true;
   };

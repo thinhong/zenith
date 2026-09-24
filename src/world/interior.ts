@@ -100,7 +100,24 @@ export const OUTDOOR_SPREAD = { market: 0.18, park: 0.38, temple: 0.22 } as cons
 export function spotOutside(lot: Lot, phase: number, spread: number): Spot {
   const reach = spread * Math.min(lot.wM, lot.dM) * (0.35 + 0.65 * fract(phase * 5.31));
   // A disc of spots, so the lot's turn does not matter.
-  return { x: lot.x + Math.cos(phase) * reach, z: lot.z + Math.sin(phase) * reach, storey: 0 };
+  const spot = { x: lot.x + Math.cos(phase) * reach, z: lot.z + Math.sin(phase) * reach, storey: 0 };
+  const ponds = lot.ponds;
+  if (!ponds || ponds.length === 0) return spot;
+  // Not in the pond: round the disc a step at a time, and failing that out
+  // toward the edge of the lot the park is entered by.
+  const wet = (x: number, z: number): boolean => ponds.some((pond) => Math.hypot(x - pond.x, z - pond.z) < pond.radiusM + 0.8);
+  for (let k = 1; wet(spot.x, spot.z) && k < 12; k++) {
+    const angle = phase + k * 2.39996;
+    const r = reach * (k < 6 ? 1 : 1.6);
+    spot.x = lot.x + Math.cos(angle) * r;
+    spot.z = lot.z + Math.sin(angle) * r;
+  }
+  if (wet(spot.x, spot.z)) {
+    const front = toWorld(lot, (fract(phase * 3.7) - 0.5) * lot.wM * 0.6, -lot.dM / 2 + 2.5);
+    spot.x = front.x;
+    spot.z = front.z;
+  }
+  return spot;
 }
 
 function fract(value: number): number {

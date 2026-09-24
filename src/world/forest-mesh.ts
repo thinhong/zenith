@@ -89,14 +89,37 @@ function woods(trees: readonly ForestTree[], geometry: BufferGeometry, base: num
   return mesh;
 }
 
-export function createForest(trees: readonly ForestTree[]): Group {
+export interface Forest {
+  group: Group;
+  /**
+   * Leaves this share of the woods standing (EraAir.woods). The trees were
+   * placed in random order, so the first part of each list is a thinning of
+   * the whole, not one side of it cut away.
+   */
+  setShare: (share: number) => void;
+}
+
+export function createForest(trees: readonly ForestTree[]): Forest {
   const group = new Group();
   group.name = 'forest';
   const conifers = trees.filter((tree) => tree.conifer);
   const broadleaves = trees.filter((tree) => !tree.conifer);
-  if (conifers.length > 0) group.add(woods(conifers, coniferGeometry(), FOREST_LOOK.conifer, 'forest-conifers'));
-  if (broadleaves.length > 0) {
-    group.add(woods(broadleaves, broadleafGeometry(), FOREST_LOOK.broadleaf, 'forest-broadleaves'));
+  const meshes: { mesh: InstancedMesh; full: number }[] = [];
+  if (conifers.length > 0) {
+    meshes.push({ mesh: woods(conifers, coniferGeometry(), FOREST_LOOK.conifer, 'forest-conifers'), full: conifers.length });
   }
-  return group;
+  if (broadleaves.length > 0) {
+    meshes.push({
+      mesh: woods(broadleaves, broadleafGeometry(), FOREST_LOOK.broadleaf, 'forest-broadleaves'),
+      full: broadleaves.length,
+    });
+  }
+  for (const { mesh } of meshes) group.add(mesh);
+  return {
+    group,
+    setShare: (share) => {
+      const k = Math.min(1, Math.max(0, share));
+      for (const { mesh, full } of meshes) mesh.count = Math.round(full * k);
+    },
+  };
 }

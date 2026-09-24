@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v16, 24 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. A day on foot (section 2, step 9) added outside the milestones, by the owner's call. M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v17, 25 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. A day on foot (section 2, step 9) added outside the milestones, by the owner's call. 2300 rebuilt as a garden town round a great hall on a pond, and the trees of every era drawn in full near the eye (section 5). M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -60,6 +60,19 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 **Nothing is frustum-culled.** Every instanced mesh spans the whole settlement, so its bounding sphere covers everything and three never rejects it. That is fine while the settlement is small enough to be on screen, and it is the main reason the settlement is small: at radius 1400 m the whole city was drawn every frame, and again into the shadow map, however little of it was in view. If the settlement ever grows again, this has to become a spatial split, not a wish.
 
 **Sizes are written against the settlement radius, never in metres.** The water, the mountains and the road grid were first written as fixed metres for a 1400 m city. When the radius became 460 the same river was still 190 m wide with 250 m meanders: it swallowed the town, six sevenths of the ground stopped being buildable, and one bank was left with nothing on it. Two tests caught it. Anything that scales with the place is a fraction of `TERRAIN.cityRadiusM`; wavenumbers scale the other way.
+
+**Where it stands after the garden town and the trees of 25 Sep 2026**, same views, same method (the day at 10:00), with the build before the trees beside it on the same layouts:
+
+| | draws | triangles | before the trees |
+|---|---|---|---|
+| Modern, roof band (250 m) | 60 | 1,758,572 | 62, 1,517,624 |
+| Modern, opening view (520 m) | 60 | 1,405,660 | |
+| Modern, above the shadow cutoff (910 m) | 43 | 858,120 | |
+| Citadel, roof band (250 m) | 56 | 2,988,610 | 58, 2,724,150 |
+| 2300, roof band (250 m) | 62 | 1,733,028 | |
+| Wyrmrest, roof band (250 m) | 62 | 1,636,264 | 64, 1,445,976 |
+
+From the roof band up every tree is drawn plain, and the plain trees cost about what the old ones did: 150 triangles a broadleaf against 140, 164 a garden tree as before, 100 a conifer against 56, and 60 a shrub against 20, the last two for shapes that no longer read as a party hat and a ball. That, doubled for the shadow pass, is the 0.2 to 0.26 million added here, and two draws went the other way, because trunk and crown are one mesh now. 2300 is lower than the last table because it has no towers. At eye level the trees near the eye are drawn in full (section 5, "Trees, near and far"), and that is where the cost went: see the eye-level figures under "A day on foot". **If the phone cannot hold 30 fps**, the first lever is `TREE_DETAIL`: at eye level the same views cost 0.14 to 0.32 million more with the near trees out to 150 and 185 m than out to 110 and 140, so bringing it in further is the next saving.
 
 **Where it stands after the town plan of 23 Sep 2026**, same views, same method (the day at 10:00):
 
@@ -187,13 +200,19 @@ src/
     near-cut.ts            three.js: the cut-away round the camera, one mask node shared by the town (done)
     lots.ts                pure: what a lot is for, how tall and in what style; the lookups the walkers use (done)
     buildings.ts           three.js: InstancedMesh per style; TSL window lights (done)
-    props.ts               three.js: trees and street lamps (done); boats in M5
+    props.ts               pure and three.js: where the trees go, and the street lamps (done)
+    tree-geometry.ts       three.js: the shape of each kind of tree, near and far, and a shrub (done)
+    tree-mesh.ts           three.js: the trees drawn near and far, sorted by distance from the eye; the leaf material (done)
     structures.ts          three.js: walls, gates, roofs and paving an era places by hand (done)
     roofscape.ts           pure: what stands on a roof (done)
     streetscape.ts         pure: yard walls, parked vehicles, poles (done)
     interior.ts            pure: the inside of one opened building, and where people stand in it (done)
     facade.ts              pure: balconies, pilasters and shopfronts on a building's face (done)
     roof-geometry.ts       three.js: the shape of one Hue roof, shared by every roof in town (done)
+    houses.ts              pure: what stands on a 2300 lot: pavilions, stacked, gabled and court houses, studios, halls, shrines (done)
+    gardens.ts             pure: 2300's front gardens: walls or hedges, a gate, beds and stones (done)
+    water-gardens.ts       pure: 2300's parks as gardens round ponds, the lakes' edges, and the great hall on the pond in the middle of town (done)
+    waterside.ts           pure: jetties and lone trees along the coast or the river, for 2300 (done)
     interiors-mesh.ts      three.js: draws whichever buildings are open (done)
     instanced.ts           three.js: shared instancing helpers for the crowds (done)
     eras/
@@ -203,7 +222,7 @@ src/
       citadel.ts           era 2: walled town, temple, market (~1800) (done)
       colonial.ts          era 3: low ochre buildings, boulevards, bicycles, tram (~1930)
       modern.ts            era 4: towers downtown, districts of every grain round it, cars, scooters (~2020, default) (done)
-      after.ts             era 5: slender towers, glass and planting (~2300) (done)
+      after.ts             era 5: a garden town round a great hall on a pond, lakes, calm misty air (~2300) (done)
   agents/
     pool.ts                pure: typed-array pools for people and vehicles, and walking (done)
     schedule.ts            pure: given clock hour + role -> where an agent wants to be (done)
@@ -334,7 +353,7 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 ## 5. Art direction
 
 - **Scale.** 1 unit = 1 m. A person is 1.7 m tall (a capsule or a 3-box figure: legs, body, head). A car is 4.5 m by 1.8 m. Streets are 7 to 10 m wide (modern), 4.5 m lanes (citadel). Blocks run from about 20 m across in an old quarter to more than 100 m long in a suburb, because each district is laid out on its own (below). **The settlement fills a disc of radius 460 m**, ringed by low mountains from 760 m to 1600 m. Owner's decision, 20 Sep 2026: one small settlement rather than a city, so that every building can be worth looking at, and so that what is drawn is what is on screen. The land itself runs far past that (12 km) and is ended by fog, not by an edge: a disc that stops where the viewer can still see it reads as a mistake.
-- **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB.
+- **Shapes.** Boxes, cylinders, cones, capsules only. Roofs may be a second thinner box or a cone. No imported models in M1 to M4. If a later milestone imports models, they must be under 2,000 triangles each and stored as `.glb` under 200 kB. The trees are the one exception, by the owner's call (25 Sep 2026): near the eye their crowns are leaf cards cut into leaves by noise in the material. Still no image textures anywhere.
 - **Colours.** Flat `MeshLambertMaterial` or node equivalents, 4 to 6 building colours per era. **The target is painted daylight** (owner's decision, 20 Sep 2026; it was briefly an aerial photograph, and that set of values is in the git history). Two rules survive whichever way it goes, and they pull against each other:
   - Nothing sits below about `0x60`. A shaded side keeps roughly 45 percent of its value, so anything darker than that goes to mud, which is what the first version of every palette did.
   - Very little is saturated. A city from six hundred metres is grey, beige and dark green; colour appears in terracotta roofs, a painted wall and rust. Separation between uses is carried by value and by hue that is barely there.
@@ -441,14 +460,28 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 - **A day on foot** (`story/`, `walk/`, 24 Sep 2026). The same toy world, seen from 1.62 m.
   - **The eye.** The field of view is held at about 75 degrees across (50 to 80 up and down), because the narrow view from above is a slot on a phone held upright. The near plane is 0.25 m, so a wall at arm's length is not cut open, and on the way down and up it follows the camera's height, or the street is cut open under the eye at the bottom of the flight. Tilt shift and the near cut are off at eye level.
   - **The ground layers are a few centimetres apart** (`LAYER_Y`). With the pavement half a metre up, everybody on it stood in it to the knee. Everything underfoot counts: a person of the day stands on a square, a lawn or a bridge, not sunk in it. The water carries a small depth bias toward the camera, because from the top of the range the far sea is kilometres off and the land a few centimetres under it showed through in green specks.
-  - **The body** is a disc 0.35 m across that slides along what it cannot pass: the buildings, and whatever an era lists as `barriers` (the walls, the moat, the keep, the foot of the spire). Gate houses can be walked through. Water stops you except on a bridge, and so does the country 30 m past where the plan stops.
+  - **The body** is a disc 0.35 m across that slides along what it cannot pass: the buildings, and whatever an era lists as `barriers` (the walls, the moat, the keep, a garden wall). Gate houses can be walked through. Water stops you except on a bridge, and so does the country 30 m past where the plan stops.
   - **The places of a day are cast by role** (home, work, market, park, temple, landmark, shore) from the seed's own town, by a seeded score that relaxes step by step until something fits. A test walks every day in every era from each place to the next, on three seeds.
   - **The day owns the clock.** It runs on to each part of the day's hour in 3.2 s and at about a quarter of an hour a minute in between. The crowd's thoughts go quiet while you talk.
   - **The people of a day** are the crowd's figure in their own clothes, a grey cat with one white paw in every era, and in 2300 a helper machine that floats. A faint gold ring on the ground marks whoever is waiting for you.
   - **The words.** A pill over whoever is speaking, placed like a thought's; your own words and thoughts along the foot of the glass; the line before a choice stays up with the two replies (1 and 2). A voice on the telephone sits along the foot with the caller's name. The crowd still thinks out loud on foot, three at a time rather than six, and only people you can see from where you stand: a pill over a wall with its person behind it reads as the wall thinking.
   - **Direction** is the gold light alone: it keeps about 9 m ahead and waits if you fall 16 m behind. When it is out of view, a small echo of it sits on the edge of the glass on the side to turn to. No arrow, no map, no marker text.
   - **Hands.** W A S D or the arrows, the mouse held by a click (Esc lets it go and opens the menu), Shift to hurry. On a phone the left 45 percent of the glass is a thumb stick, the rest looks, and a tap talks.
-  - **Measured at eye level**, seed 1, headless: 60 to 69 draw calls; 1.0 million triangles in Wyrmrest, 1.2 in 2020, 1.9 in 2300 and 2.4 in 1800. The story adds about 20 kB to the gzipped bundle.
+  - **Measured at eye level**, seed 1, headless, 25 Sep 2026, at the start of the fourth scene of each day (in 2300 also the fifth, in the old park): 63 to 71 draw calls; 1.6 million triangles in Wyrmrest, 1.8 in 2020, 1.8 to 2.0 in 2300 and 3.0 in 1800. The last figures, 1.0, 1.2, 1.9 and 2.4, were taken before the trees near the eye were drawn in full, and not at the same places. The story adds about 20 kB to the gzipped bundle.
+- **2300, a garden town** (`world/eras/after.ts`, 24 to 25 Sep 2026). Owner's call, from photographs of modern Japanese gardens: "Low garden city". Then: put the landscape first, make a variety of buildings, be creative and keep it elegant; put lakes inside the town; and give it a heart "massive but elegant and beautiful that blends well with the style".
+  - **Houses, not towers** (`world/houses.ts`). Low houses of a few kinds in two or three materials, pale plaster, dark boards, warm timber and dark glass: a pavilion under one deep roof, a house whose upper floor reaches out over its garden, a long gabled house, a house round a court. Workshops under folded roofs, the market under open timber halls, shrines on stone plinths. An eave never reaches past half the gap to its neighbour.
+  - **Gardens** (`world/gardens.ts`, `world/water-gardens.ts`). A wall or a hedge in front of each house with a gate, beds and stones. Every park is a garden round a chain of pools, with stepping stones, an island and, in the bigger ones, a tea house half over the water.
+  - **Lakes in the town** (`world/plan.ts`). Three, each in the middle of a district, the lanes stopping at the water, with a pier, a pavilion on stilts and trees at their edges; outside town, jetties and lone trees along the shore (`world/waterside.ts`).
+  - **Calm air** (`EraAir`). More mist in the haze, a softer sun, fuller sky light, still water, the woods thinned to a tree here and there. Mist lies only over water: the sea's sheets, and two thin sheets just off each lake, below the eye of somebody on the bank, in wisps finer than a lake is wide, thinning from 40 m up and gone by 220 m. The first version was one sheet 4 m up at the sea's scale of noise, which sat over every lake as one even film: milk by day and pink at dusk from the air, and from the bank above the eye, facing away from it, so it could not be seen at all.
+  - **Still water mirrors the far bank** (`world/ground.ts BANK_MIRROR`). Worked out against a ring of trees round each lake's own circle: from the bank a reflected ray rises as steeply as the eye looks down, and over most of the water it meets the trees across it before it clears them. So a lake is dark with a rolling tree line upside down in it, and only near the eye is it sky. Mirroring only the sky, it was a pale blue floor.
+  - **The heart is a great hall on a pond** (`world/water-gardens.ts buildHeart`). The pond fills most of the square, wider than deep. The hall stands in its back on a stone base, under a lower roof all round and the great roof over it with its ends turned up; open galleries run out over the water to a tower on each side, on forward from the towers, and back to the shore behind, which is the way in. From the air it is a bird with its wings open. Cypress-bark roofs, dark timber posts, paper walls whose windows light at night. Straight across the water, a timber platform half over it, where the day's lunch is (`story/days/after.ts`). An island with one old tree and a lantern, reached by a zig-zag of planks; a heap of rocks with a red maple; lilies; reeds by the bridge; a gravel path round the pond that wanders nearer and further; a dark wood behind the hall with two gold ginkgos in it; open grass in front. It replaced a white ring of roof 120 m across round a round pond, which was massive and read from the air as a stadium: the one bright, hard-edged thing in a town of dark roofs, timber and moss. Two things were wrong on the way: a charcoal tile roof was a black lid on the water from above, and a path at one distance all the way round the pond was a running track round a pool.
+- **Trees, near and far** (`world/tree-geometry.ts`, `world/tree-mesh.ts`, 25 Sep 2026). Owner's words: "Increase the details of trees to make they look realistic". A tree was a pole under six twenty-sided balls, flat shaded. What makes one read as a tree is not how many leaves it has:
+  - **The crown is lit as one soft shape.** Every leaf's normal leans out from the middle of the whole crown as well as from its own clump, so the sun side is bright and the far side falls away, the way a canopy does. The normals are the surface's own worked out in tree space, and never leaned outward there: an instance stretches a conifer to twice as tall as it is wide, which stretches every normal toward the horizontal, and the first conifers, leaned outward on top of that, were lit from above as if their tiers were walls.
+  - **It is dark inside and underneath**, a shade baked into each vertex, and **it has wood in it**: a trunk that forks into limbs with twigs off them, or the thin stems of a garden tree.
+  - **Leaves, not balls.** Near the eye a clump is a shell of leaf cards round a smaller dark core. Each card is a square laid on a face of a polyhedron round the clump, a little outside it and a little bigger than the face, so the cards overlap and stand out past the core, and the material cuts each one into a cluster of leaves with noise in its own square, thinning toward the corners. A solid clump seen close is a ball, and a flattened one a plate: from under a tree the first version was a stack of cut paper. The light on the leaves is three sizes of noise in the world (clusters, sprays, single leaves), with the green drifting yellower and bluer across a crown. A conifer is tiers that rise to the trunk and droop at a ragged rim of branch tips.
+  - **Near and far.** Each kind is two instanced meshes. Nearer the eye than 110 m a tree is drawn in full, about 1,250 triangles for a broadleaf, 650 for a garden tree and 600 for a conifer; past 140 m it is 150, 164 and 100, about what it was before; in between both are drawn, and the screen-space dither of the near cut shares the pixels between them. That is measured from the eye, not from whichever camera is drawing, or in the shadow pass, where the camera is the sun, a tree near the eye would cast no shadow at all. The CPU sorts the trees whenever the eye has moved 6 m (`TREE_DETAIL`). From the roof band up no tree is that near, so the view from above costs what it did.
+  - **They move a little**: a slow sway with the square of the height, so the trunk stands and the crown moves, and a quicker flutter in the leaves, on the weather clock, which stands still for anybody who asked for less motion.
+  - A shrub is three lumps of twenty faces each. At eighty faces a lump, the citadel's fifteen hundred shrubs cost more than all its trees.
 
 ## 6. Milestones
 
@@ -752,6 +785,13 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-24 | The flat layers are a few centimetres apart, not half a metre | at eye level a pavement 0.5 m up stood people in it to the knee. The camera stops at 2.6 km and the near plane grows with altitude, so 4 to 8 cm is enough from above |
 | 2026-09-24 | The places of a day are cast by role from the seed's town | a day written against coordinates breaks with every seed and with every change to the planner |
 | 2026-09-24 | The way is shown by the gold light alone, and its echo on the edge of the glass | it is the soul's light (step 7). A light that goes ahead and waits gives a direction without an arrow or a map |
+| 2026-09-24 | 2300 is a low garden town, not a town of slender towers | owner's call from photographs of modern Japanese gardens: "Low garden city". Then: the landscape first, a variety of buildings, creative, and elegant |
+| 2026-09-24 | Lakes in the town, the lanes stopping at the water | owner asked "why don't we have lakes inside the city?" |
+| 2026-09-24 | Mist lies only over water, in low wisps that thin from the air | a sheet over the whole town was a halo round the camera; one sheet over a lake 4 m up was milk from above, pink at dusk, and from the bank above the eye and invisible |
+| 2026-09-24 | A day's park is met at its road edge, and nobody in the crowd stands in a pond | the middle of a 2300 park is water now; a spot taken from the middle put people in it |
+| 2026-09-25 | The heart of 2300 is a great hall on a pond, not a ring | owner asked for something "massive but elegant and beautiful that blends well with the style". The white ring was massive and read from the air as a stadium, the one bright hard-edged thing in a town of dark roofs, timber and moss |
+| 2026-09-25 | Still water mirrors the far bank as well as the sky | mirroring the sky alone made a still lake a pale floor; from its bank most of a lake shows the trees across it upside down |
+| 2026-09-25 | Trees are drawn in full near the eye and plainly past it, their crowns leaf cards round dark cores | owner asked for realistic trees. The split keeps the view from above at about its old cost; a dither shares the band between the two |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

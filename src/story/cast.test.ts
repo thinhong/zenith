@@ -1,34 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { buildWalkPath } from '@/agents/paths';
 import { WALK } from '@/state/altitude';
-import { castPlaces } from '@/story/cast';
+import { castPlaces, wayBetween, type Spot } from '@/story/cast';
 import { DAYS } from '@/story/days';
 import { canStand, moveBody } from '@/walk/body';
 import { townGround } from '@/walk/town';
 import { buildLayout, eraById } from '@/world/eras';
-import { nearestNode } from '@/world/roads';
+import type { RoadGraph } from '@/world/roads';
 import { mulberry32 } from '@/world/seed';
 import { buildTerrain } from '@/world/terrain';
 
 /**
- * Walks from one spot to another the way the light leads: along the roads,
- * bumping into whatever is in the way. Returns how close it got.
+ * Walks from one spot to another the way the light leads: out through a
+ * garden gate, along the roads, in at the far gate, bumping into whatever is
+ * in the way. Returns how close it got.
  */
-function walk(
-  ground: ReturnType<typeof townGround>,
-  graph: Parameters<typeof buildWalkPath>[0],
-  from: { x: number; z: number },
-  to: { x: number; z: number },
-): number {
-  const path = buildWalkPath(graph, {
-    fromX: from.x,
-    fromZ: from.z,
-    toX: to.x,
-    toZ: to.z,
-    fromNode: nearestNode(graph, from.x, from.z),
-    toNode: nearestNode(graph, to.x, to.z),
-    laneM: 0,
-  });
+function walk(ground: ReturnType<typeof townGround>, graph: RoadGraph, from: Spot, to: Spot): number {
+  const path = wayBetween(graph, from, to);
   let x = from.x;
   let z = from.z;
   for (let i = 1; i < path.x.length; i++) {
