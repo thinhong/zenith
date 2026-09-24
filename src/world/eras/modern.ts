@@ -362,7 +362,14 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   yield;
   structures.push(...buildFacade(rng, lots, FACADE_STYLE));
   structures.push(...buildParks(lots, PARK_STYLE));
-  return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
+  return {
+    roads,
+    lots,
+    structures,
+    cityRadiusM: terrain.cityRadiusM,
+    // The square in the middle: a step off the path round the fountain.
+    landmarks: { square: { x: 0, z: 7, faceX: 0, faceZ: -1 } },
+  };
 }
 
 export const MODERN_ERA: Era = {

@@ -1,4 +1,5 @@
 import { smoothstep } from '@/state/altitude';
+import { rectOf } from '@/world/geometry2d';
 import { AFTER_THOUGHTS } from '@/thoughts/after-content';
 import { ERA_POPULATION } from '@/world/eras/population';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
@@ -381,11 +382,21 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   yield;
   structures.push(...buildStreetscape(rng, roads, lots, STREET_STYLE));
   yield;
-  structures.push(...skyline(rng, lots, plan.ring, plan.reserves.find((r) => r.lot === null)));
+  const high = skyline(rng, lots, plan.ring, plan.reserves.find((r) => r.lot === null));
+  structures.push(...high);
   yield;
   structures.push(...buildFacade(rng, lots, FACADE_STYLE));
   structures.push(...buildParks(lots, PARK_STYLE));
-  return { roads, lots, structures, cityRadiusM: terrain.cityRadiusM };
+  return {
+    roads,
+    lots,
+    structures,
+    cityRadiusM: terrain.cityRadiusM,
+    // The foot of the spire and the piers of the guideway: everything of the
+    // skyline that stands on the ground.
+    barriers: high.filter((piece) => piece.kind === 'box' && piece.y === 0).map(rectOf),
+    landmarks: { spire: { x: 0, z: 14, faceX: 0, faceZ: -1 } },
+  };
 }
 
 export const AFTER_ERA: Era = {

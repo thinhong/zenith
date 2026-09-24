@@ -19,6 +19,13 @@ export interface Settings {
   startTarget: { x: number; z: number } | null;
   /** Open in this era, as `?era=citadel`. `null` opens in the usual one. */
   startEra: EraId | null;
+  /**
+   * Open straight into this era's day on foot, as `?day=1`, and at a later
+   * scene of it as `&scene=3`. For checking a scene without walking the
+   * whole day to it.
+   */
+  startDay: boolean;
+  startScene: number | null;
 }
 
 export function parseSettings(search: string, reducedMotion: boolean): Settings {
@@ -31,6 +38,8 @@ export function parseSettings(search: string, reducedMotion: boolean): Settings 
     startAltitudeM: clampOrNull(finiteOrNull(q.get('alt')), ALTITUDE.min, ALTITUDE.max),
     startTarget: parsePoint(q.get('at')),
     startEra: parseEra(q.get('era')),
+    startDay: q.get('day') === '1',
+    startScene: clampOrNull(finiteOrNull(q.get('scene')), 0, 20),
   };
 }
 

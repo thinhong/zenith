@@ -1,6 +1,6 @@
 # Zenith: implementation plan
 
-Status: v15, 23 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v16, 24 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. A day on foot (section 2, step 9) added outside the milestones, by the owner's call. M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
 ## 1. What Zenith is
 
@@ -8,7 +8,7 @@ Zenith is a small browser world that you look down on from a high place. You scr
 
 The same piece of land can be viewed in different eras (rice fields, an old citadel, a colonial town, a modern city, a green ruin) to carry the idea of reincarnation: the clothes change, the worries do not. A small light (a "soul") can be followed from one life to the next.
 
-The purpose is to remind the viewer to stay calm: to watch the world like an outsider, not an actor. Zenith is not a game with goals. There is nothing to win, collect, or finish.
+The purpose is to remind the viewer to stay calm: to watch the world like an outsider, not an actor. Zenith is not a game with goals. There is nothing to win, collect, or finish. The one exception is a day on foot (section 2, step 9): it tells a story and asks for a reply now and then, and there is still nothing to win.
 
 ### 1.1 Feeling we want (design principles)
 
@@ -27,6 +27,7 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 - No realistic assets, photogrammetry, or textures above 512 px.
 - No multiplayer, chat, sharing buttons, or social features.
 - No achievements, scores, timers, streaks, or "progress".
+- The one story mode allowed is **a day on foot** (owner's call, 24 Sep 2026): soft aims, and two-reply choices that change how a day ends. No fail state, no score, no timer, no typing. Nothing in the view from above depends on it.
 - No third-party UI frameworks (React, Vue, etc.). Plain DOM and CSS are enough for the tiny UI.
 
 ## 2. The viewer's experience, step by step
@@ -39,6 +40,7 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 6. Dragging the era dial cross-fades the land into another era over about 3 seconds: buildings sink into the ground, new ones rise. The people keep walking, in new clothes (colours), with new thoughts and new sounds.
 7. Clicking a person (only in the street band) makes the camera follow them gently and shows a three-line "life" card (a name, an age, one worry). After about 20 seconds, or on any zoom, a small light leaves the person, rises, and settles on someone else, possibly in another era. The camera follows the light. This is the reincarnation moment. It can be ignored entirely.
 8. Day and night cycle slowly (a full day in about 6 minutes). A "century in a minute" button in the era dial plays all eras in sequence as a time-lapse and then stops.
+9. **A day on foot** (24 Sep 2026). The bar's "A day" button, or L, brings the view down out of the sky into one person's eyes on their doorstep, early in the morning, in whichever era is showing. From there the viewer walks that person's ordinary day: work, the market, a friend, home again, following a small gold light that goes ahead and waits. Near somebody they can talk (a click, E, or a tap), and now and then they pick one of two replies, which changes how the day ends. Each era has its own day: Edda's bread in Wyrmrest, Lài's rice in 1800, Minh's four missed calls in 2020, Sol's street in 2300. At night the day ends where it began, the last thought stays a moment, and the view rises back into the sky and hands the camera back. Esc, or the arrow in the corner, rises out of a day at any time.
 
 ## 3. Technology and constraints
 
@@ -219,6 +221,19 @@ src/
     select.ts              pure: who is thinking out loud, and for how long (done)
     thoughts.ts            three.js + DOM: projects heads to screen, places the pills (done)
     place.ts               pure: where a pill goes and how it stays joined to a head (done)
+  story/
+    script.ts              pure: what a day is made of (scenes, lines, replies, flags) and a check that one is well formed (done)
+    run.ts                 pure: plays a day: what is said, what can be replied, what comes next (done)
+    cast.ts                pure: where a day's places are in this seed's town, cast by role (done)
+    days/                  data: one ordinary day per era (done)
+    day-mode.ts            three.js + DOM: the flights down and up, the day's clock, and the glue (done)
+    actors.ts              three.js: the people of a day, the cat, the machine, the ring under whoever is waiting (done)
+    guide.ts               three.js: the small gold light that goes ahead (done)
+    ui.ts                  DOM: the words, the two replies, the menu (done)
+  walk/
+    body.ts                pure: a disc that walks and slides along whatever it cannot pass (done)
+    town.ts                pure: what cannot be walked through in a town, and where the walkable ground ends (done)
+    walker.ts              DOM + camera: keys and mouse, or two thumbs; the eyes (done)
   souls/
     souls.ts               SoulSystem: pick, follow, life card, hand-over animation
     lives.ts               life card templates by era (data only)
@@ -423,6 +438,17 @@ The maths lives in `state/era.ts` and is pure, so it is unit tested. `world/worl
 - **Whatever comes between the camera and the ground is cut away** (`state/altitude.ts NEAR_CUT`, `world/near-cut.ts`). In 2300 a tower is three times taller than the camera can be low, and coming down beside one filled the frame with one flat wall. Anything nearer the camera than 38 percent of its altitude, or 44 m, is discarded, with a five-metre dithered edge; the look-at point is never touched. A dither rather than transparency keeps it in the opaque pass and writing depth. Spread over twenty metres the dither turned a whole tower top into a screen door, so the band is narrow on purpose.
 - **Text.** Thought bubbles are DOM elements, 13 px system font, light on a semi-transparent dark pill, positioned by projecting the person's head to screen space each frame. Font size does not scale with zoom; opacity does. They wrap rather than run off the frame, and they carry a tail pointing at the head they belong to. The lift above the head is part metres and part pixels: a lift in metres alone shrinks with altitude, so over an opened building the stack came to rest on the very crowd it belonged to.
 - **A person is about sixty triangles, or a hundred and eighty.** The figure was sized for somebody five pixels tall, which is what they are from the roof band, but the camera comes down to 12 m and there a person fills a good part of the frame: six facets read as a hexagonal nut and no arms reads as a skittle. Eight sides and separate arms now, and the cost is paid back several times over by not drawing the people nobody can see. Above 300 m they are dots, because a person is roughly 1450/altitude pixels tall and three metres above that line a figure is three pixels.
+- **A day on foot** (`story/`, `walk/`, 24 Sep 2026). The same toy world, seen from 1.62 m.
+  - **The eye.** The field of view is held at about 75 degrees across (50 to 80 up and down), because the narrow view from above is a slot on a phone held upright. The near plane is 0.25 m, so a wall at arm's length is not cut open, and on the way down and up it follows the camera's height, or the street is cut open under the eye at the bottom of the flight. Tilt shift and the near cut are off at eye level.
+  - **The ground layers are a few centimetres apart** (`LAYER_Y`). With the pavement half a metre up, everybody on it stood in it to the knee. Everything underfoot counts: a person of the day stands on a square, a lawn or a bridge, not sunk in it. The water carries a small depth bias toward the camera, because from the top of the range the far sea is kilometres off and the land a few centimetres under it showed through in green specks.
+  - **The body** is a disc 0.35 m across that slides along what it cannot pass: the buildings, and whatever an era lists as `barriers` (the walls, the moat, the keep, the foot of the spire). Gate houses can be walked through. Water stops you except on a bridge, and so does the country 30 m past where the plan stops.
+  - **The places of a day are cast by role** (home, work, market, park, temple, landmark, shore) from the seed's own town, by a seeded score that relaxes step by step until something fits. A test walks every day in every era from each place to the next, on three seeds.
+  - **The day owns the clock.** It runs on to each part of the day's hour in 3.2 s and at about a quarter of an hour a minute in between. The crowd's thoughts go quiet while you talk.
+  - **The people of a day** are the crowd's figure in their own clothes, a grey cat with one white paw in every era, and in 2300 a helper machine that floats. A faint gold ring on the ground marks whoever is waiting for you.
+  - **The words.** A pill over whoever is speaking, placed like a thought's; your own words and thoughts along the foot of the glass; the line before a choice stays up with the two replies (1 and 2). A voice on the telephone sits along the foot with the caller's name. The crowd still thinks out loud on foot, three at a time rather than six, and only people you can see from where you stand: a pill over a wall with its person behind it reads as the wall thinking.
+  - **Direction** is the gold light alone: it keeps about 9 m ahead and waits if you fall 16 m behind. When it is out of view, a small echo of it sits on the edge of the glass on the side to turn to. No arrow, no map, no marker text.
+  - **Hands.** W A S D or the arrows, the mouse held by a click (Esc lets it go and opens the menu), Shift to hurry. On a phone the left 45 percent of the glass is a thumb stick, the rest looks, and a tap talks.
+  - **Measured at eye level**, seed 1, headless: 60 to 69 draw calls; 1.0 million triangles in Wyrmrest, 1.2 in 2020, 1.9 in 2300 and 2.4 in 1800. The story adds about 20 kB to the gzipped bundle.
 
 ## 6. Milestones
 
@@ -629,13 +655,13 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 ## 8. Testing and verification
 
 - `npm run typecheck`: strict TypeScript, no errors.
-- `npm test`: Vitest unit tests for everything pure (PRNG, bands, road graph, pathfinding, lots, schedules, thought selection, era transition maths). Aim for every pure module to have a test file next to it.
+- `npm test`: Vitest unit tests for everything pure (PRNG, bands, road graph, pathfinding, lots, schedules, thought selection, era transition maths). Aim for every pure module to have a test file next to it. Each day on foot is played down every path of replies: every part of the day is reached, every ending can be reached, the clock only goes forward, and every line fits its pill.
 - `npm run build`: production build; check the reported gzipped size against the budget.
 - `npm run smoke`: headless Chromium render; writes `docs/screenshots/smoke.png`; fails on page errors. Agents without a display must run this and read the screenshot.
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
 - Measuring a level-of-detail pop: hold the camera **exactly** still and change only the detail. Two renders 10 m apart in altitude differ by 76% of pixels on their own, because a city is mostly thin vertical edges and they all move. That number was twice mistaken for a pop; a control pair with the detail unchanged gives the same number. Freeze the clock with `?pause=1` too, or a drifting sun moves every shadow between the two shots.
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
-- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
+- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era; `?day=1` starts a day on foot at once, without the flight down, and `?scene=3` starts it at that part of the day, a few steps from the place. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
 
 ## 8.1 What a full read of the code turned up (20 Sep 2026)
 
@@ -722,6 +748,10 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-23 | Lots stand along the streets and are turned to face them | a lot cut from a square block only works while every block is a square on one grid; the new streets run at every angle and curve |
 | 2026-09-23 | The grid builders are removed | nothing draws them any more. The tests that walked people round the grid now walk them round a planned town |
 | 2026-09-23 | The hills cast no shadow | the shadow map covers 520 m round the look-at point and the hills are almost never in it; nothing is culled, so casting cost 86k triangles a frame for nothing |
+| 2026-09-24 | A day on foot: one ordinary day per era, walked at eye level, with two-reply choices | owner's call: a first-person mode with "a very interesting story rather than just walking around". Soft aims only, no fail state, score, timer or typing, and it ends by rising back into the sky, so altitude still carries the meaning |
+| 2026-09-24 | The flat layers are a few centimetres apart, not half a metre | at eye level a pavement 0.5 m up stood people in it to the knee. The camera stops at 2.6 km and the near plane grows with altitude, so 4 to 8 cm is enough from above |
+| 2026-09-24 | The places of a day are cast by role from the seed's town | a day written against coordinates breaks with every seed and with every change to the planner |
+| 2026-09-24 | The way is shown by the gold light alone, and its echo on the edge of the glass | it is the soul's light (step 7). A light that goes ahead and waits gives a direction without an arrow or a map |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

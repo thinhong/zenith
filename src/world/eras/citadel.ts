@@ -1,7 +1,8 @@
 import { smoothstep } from '@/state/altitude';
 import { CITADEL_THOUGHTS } from '@/thoughts/citadel-content';
 import { ERA_POPULATION } from '@/world/eras/population';
-import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
+import type { Era, EraBuild, EraPalette, Landmark, Structure, VehicleProfile } from '@/world/eras';
+import { rectOf, type OrientedRect } from '@/world/geometry2d';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import { LAYER_Y } from '@/world/ground';
 import { parcelSteps } from '@/world/parcels';
@@ -240,7 +241,7 @@ function roof(x: number, y: number, z: number, wM: number, hM: number, dM: numbe
   return { kind: 'roof', x, y, z, wM, hM, dM, rotY: 0, colour };
 }
 
-function flat(x: number, z: number, wM: number, dM: number, colour: number, y = 0.18): Structure {
+function flat(x: number, z: number, wM: number, dM: number, colour: number, y = 0.1): Structure {
   return { kind: 'flat', x, y, z, wM, hM: 1, dM, rotY: 0, colour };
 }
 
@@ -645,8 +646,49 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildFacade(rng, all, FACADE_STYLE));
   structures.push(...buildParks(all, PARK_STYLE));
 
-  return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
+  return {
+    roads,
+    lots: all,
+    structures,
+    cityRadiusM: terrain.cityRadiusM,
+    barriers: citadelBarriers(moatMid, moatSpan),
+    landmarks: CITADEL_LANDMARKS,
+    enclosure: { shape: 'square', halfM: CITADEL.wallHalfM },
+  };
 }
+
+/**
+ * Both walls, and the moat either side of each bridge. The gate houses are
+ * left out on purpose: the lane runs through them, and so does whoever is on
+ * foot, the way the real ones have a passage under the tiers.
+ */
+function citadelBarriers(moatMid: number, moatSpan: number): OrientedRect[] {
+  const out: OrientedRect[] = [];
+  const walls = [
+    ...wallStructures(CITADEL.wallHalfM, CITADEL.wallThicknessM, CITADEL.wallHeightM, CITADEL.gateWidthM, 0),
+    ...wallStructures(CITADEL.innerHalfM, CITADEL.innerThicknessM, CITADEL.innerHeightM, CITADEL.gateWidthM, 0),
+  ];
+  for (const wall of walls) out.push(rectOf(wall));
+  const run = (moatSpan - BRIDGE_M) / 2;
+  const along = BRIDGE_M / 2 + run / 2;
+  for (const side of [-1, 1]) {
+    for (const end of [-1, 1]) {
+      out.push({ x: end * along, z: side * moatMid, wM: run, dM: CITADEL.moatWidthM, rotY: 0 });
+      out.push({ x: side * moatMid, z: end * along, wM: CITADEL.moatWidthM, dM: run, rotY: 0 });
+    }
+  }
+  return out;
+}
+
+/** Where Lài's day happens (story/days/citadel.ts). */
+const CITADEL_LANDMARKS: Readonly<Record<string, Landmark>> = {
+  /** The tea stall: just outside the east gate, where the bridge meets the road. */
+  eastGate: { x: MOAT_ROAD_M - 3, z: 8, faceX: -1, faceZ: 0 },
+  /** The inner edge of the road along the moat, a little east of the south gate. */
+  moat: { x: 34, z: MOAT_ROAD_M - 5, faceX: 0, faceZ: -1 },
+  /** Before the south gate of the enclosure, where the candidates come out. */
+  halls: { x: 6, z: CITADEL.innerHalfM + 12, faceX: 0, faceZ: -1 },
+};
 
 /**
  * The wall, and what is kept clear round it. Outside the outer wall that is

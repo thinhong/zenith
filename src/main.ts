@@ -7,6 +7,7 @@ import { createBar } from '@/ui/bar';
 import { ERA_ORDER } from '@/world/eras';
 import { altitudeBand, smoothstep } from '@/state/altitude';
 import { createPost } from '@/core/post';
+import { createDayMode } from '@/story/day-mode';
 
 /** Where the miniature look fades in as the camera rises. */
 const POST_FADE = { offM: 90, onM: 260 } as const;
@@ -55,6 +56,25 @@ async function main(): Promise<void> {
     onPause: (paused) => {
       world.clock.paused = paused;
     },
+    onWalk: () => {
+      day.start();
+    },
+  });
+
+  // --- a day on foot ---------------------------------------------------------
+  // Everything else on screen is put away while it lasts, and the bar comes
+  // back when the view has risen out of it again.
+  const day = createDayMode({
+    world,
+    rig,
+    surface: renderer.domElement,
+    reducedMotion: settings.reducedMotion,
+    seed: settings.seed,
+    onEnter: () => bar.setGone(true),
+    onLeave: () => {
+      bar.setGone(false);
+      bar.refresh();
+    },
   });
 
   // --- opening a building ----------------------------------------------------
@@ -71,6 +91,8 @@ async function main(): Promise<void> {
   renderer.domElement.addEventListener('pointerup', (e) => {
     const from = downAt;
     downAt = null;
+    // On foot a click is for looking about and talking (story/day-mode.ts).
+    if (day.active()) return;
     // A drag is how the camera is moved, so only a click opens anything.
     // A finger never holds as still as a mouse, so the slop that separates a
     // tap from a drag has to be wider for touch than for a pointer.
@@ -94,6 +116,12 @@ async function main(): Promise<void> {
   });
 
   window.addEventListener('keydown', (e) => {
+    // On foot the keys walk and talk, and belong to the day.
+    if (day.active()) return;
+    if (e.code === 'KeyL') {
+      day.start();
+      return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       world.clock.paused = !world.clock.paused;
@@ -119,12 +147,21 @@ async function main(): Promise<void> {
 
   let view = rig.view();
   let fps = 0;
+  let startedDay = false;
 
   startLoop({
     update: (dt, elapsed) => {
       renderer.info.reset();
-      rig.update(dt);
-      view = rig.view();
+      if (settings.startDay && !day.active() && !startedDay && day.canStart()) {
+        startedDay = true;
+        day.start({ instant: true, scene: settings.startScene ?? 0 });
+      }
+      const onFoot = day.update(dt);
+      if (onFoot) view = onFoot;
+      else {
+        rig.update(dt);
+        view = rig.view();
+      }
       fps = 1 / Math.max(dt, 1e-6);
       world.update(dt, elapsed, view);
       // The miniature look belongs to the view from above. At street level a
@@ -142,6 +179,7 @@ async function main(): Promise<void> {
         `backend: ${backend}\n` +
           `altitude: ${view.altitudeM.toFixed(0)} m (${altitudeBand(view.altitudeM)})\n` +
           `${world.info()}\n` +
+          (day.active() ? `${day.info()}\n` : '') +
           `draws: ${stats.drawCalls}  tris: ${stats.triangles.toFixed(0)}\n` +
           `fps: ${fps.toFixed(0)}`,
       );
@@ -153,6 +191,7 @@ async function main(): Promise<void> {
     const h = container.clientHeight;
     renderer.setSize(w, h, false);
     rig.resize(w, h);
+    day.resize(w, h);
   };
   window.addEventListener('resize', onResize);
   onResize();

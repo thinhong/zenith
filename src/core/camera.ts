@@ -36,6 +36,11 @@ export interface ViewState {
   eyeX: number;
   eyeY: number;
   eyeZ: number;
+  /**
+   * On foot, seen from a person's eyes (walk/). The altitude is then the
+   * height of those eyes, and the target is a point on the ground ahead.
+   */
+  walking?: boolean;
 }
 
 export interface CameraRig {
@@ -132,7 +137,15 @@ function clampTarget(controls: OrbitControls, panLimitM: number): void {
 }
 
 /**
- * Depth precision scales with the near plane, and Zenith spans 12 m to 6 km.
+ * The near and far planes for a camera this high. `minNearM` is lower on foot
+ * (story/day-mode.ts), where a wall can be at arm's length.
+ */
+export function clipPlanesFor(altitudeM: number, minNearM = 0.5): { near: number; far: number } {
+  return { near: Math.min(90, Math.max(minNearM, altitudeM * 0.012)), far: altitudeM * 3 + 8000 };
+}
+
+/**
+ * Depth precision scales with the near plane, and Zenith spans 12 m to 2.6 km.
  * A fixed near plane of 1 m leaves metres of depth error at satellite height,
  * which makes the roads fight with the ground they are painted on. Growing the
  * near plane with altitude keeps the error well under the layer offsets in
@@ -140,8 +153,7 @@ function clampTarget(controls: OrbitControls, panLimitM: number): void {
  * matrix is not rebuilt every frame.
  */
 function updateClipPlanes(camera: PerspectiveCamera, altitudeM: number): void {
-  const near = Math.min(90, Math.max(0.5, altitudeM * 0.012));
-  const far = altitudeM * 3 + 8000;
+  const { near, far } = clipPlanesFor(altitudeM);
   const nearDrift = near < camera.near * 0.8 || near > camera.near * 1.25;
   const farDrift = far < camera.far * 0.8 || far > camera.far * 1.25;
   if (!nearDrift && !farDrift) return;

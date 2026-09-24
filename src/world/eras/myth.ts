@@ -3,8 +3,8 @@ import { MYTH_THOUGHTS } from '@/thoughts/myth-content';
 import type { Era, EraBuild, EraPalette, Structure, VehicleProfile } from '@/world/eras';
 import { ERA_POPULATION } from '@/world/eras/population';
 import { buildFacade, type FacadeStyle } from '@/world/facade';
+import { rectOf, type OrientedRect } from '@/world/geometry2d';
 import { LAYER_Y } from '@/world/ground';
-import type { OrientedRect } from '@/world/geometry2d';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import { parcelSteps } from '@/world/parcels';
 import { planSteps, type ParcelStyle, type PlanStyle } from '@/world/plan';
@@ -870,7 +870,26 @@ function* build(rng: Rng, terrain: TerrainSpec): EraBuild {
   structures.push(...buildFacade(rng, all, FACADE_STYLE));
   structures.push(...buildParks(all, PARK_STYLE));
 
-  return { roads, lots: all, structures, cityRadiusM: terrain.cityRadiusM };
+  const southR = wallRadius(Math.PI / 2, meanM);
+  return {
+    roads,
+    lots: all,
+    structures,
+    cityRadiusM: terrain.cityRadiusM,
+    // The curtain wall, its towers and the keep on its bank. The gateways
+    // are gaps in the wall already, so whoever is on foot goes through them.
+    barriers: [
+      ...wallStructures(meanM).filter((piece) => piece.kind === 'box'),
+      ...keepStructures().filter((piece) => piece.kind === 'box' && piece.y === 0),
+    ].map(rectOf),
+    landmarks: {
+      /** Just inside the south gate, looking out through it. */
+      southGate: { x: 4, z: southR - 16, faceX: 0, faceZ: 1 },
+      /** The market square, by the well of the town. */
+      square: { x: 6, z: 6, faceX: 0, faceZ: -1 },
+    },
+    enclosure: { shape: 'circle', halfM: meanM },
+  };
 }
 
 export const MYTH_ERA: Era = {

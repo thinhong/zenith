@@ -21,6 +21,14 @@ export interface OrientedRect {
   rotY: number;
 }
 
+/**
+ * Just the rectangle, from anything that has one: how a wall's box becomes
+ * the ground nobody can walk through (EraLayout.barriers).
+ */
+export function rectOf(r: OrientedRect): OrientedRect {
+  return { x: r.x, z: r.z, wM: r.wM, dM: r.dM, rotY: r.rotY };
+}
+
 /** The unit vectors a turn of `rotY` gives local +x (u) and local +z (v). */
 export function axesOf(rotY: number): { ux: number; uz: number; vx: number; vz: number } {
   const c = Math.cos(rotY);

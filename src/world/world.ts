@@ -85,6 +85,14 @@ export interface World {
   lotAt: (mesh: Object3D, instanceId: number) => Lot | undefined;
   update: (dtS: number, elapsedS: number, view: ViewState) => void;
   info: () => string;
+  /** The era on screen, as it was laid out: for walking about in it (walk/, story/). */
+  layout: () => EraLayout;
+  /** A change of era is being built or is fading in. */
+  busy: () => boolean;
+  /** Quiets the thoughts over people's heads, while somebody is talking to you. */
+  hush: (quiet: boolean) => void;
+  /** On foot, who can be seen from where you stand, for the thoughts; null from above. */
+  sight: (sees: ((x: number, z: number) => boolean) | null) => void;
   /** 0 in daylight, 1 at night. The bloom is a night effect (core/post.ts). */
   nightFactor: () => number;
 }
@@ -547,6 +555,10 @@ export function createWorld({
       rebuildOpen(viewToward(lastView));
     },
     lotAt: (mesh, instanceId) => current.lotAt(mesh, instanceId),
+    layout: () => current.layout,
+    busy: () => pending !== null || isChanging(era),
+    hush: (quiet) => thoughts.setHush(quiet),
+    sight: (sees) => thoughts.setSight(sees),
     nightFactor: () => skyAt(clock.hourOfDay).nightFactor,
     update: (dtS, elapsedS, view) => {
       lastView = view;
@@ -556,7 +568,8 @@ export function createWorld({
         if (toward.x * openedTowardX + toward.z * openedTowardZ < 0.84) rebuildOpen(toward);
       }
       const altitudeM = view.altitudeM;
-      setNearCut(altitudeM);
+      // On foot nothing is in the way of the view but what you walk into.
+      setNearCut(view.walking ? 0 : altitudeM);
       advanceClock(clock, dtS);
       if (!reducedMotion) advanceClouds(elapsedS);
       advancePending();

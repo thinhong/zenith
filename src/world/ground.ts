@@ -45,11 +45,16 @@ export const GROUND_PALETTE = {
 } as const;
 
 /**
- * Coplanar surfaces need a little separation or they fight for the same depth.
- * The camera's near plane grows with altitude (core/camera.ts) so these small
- * gaps stay resolvable from 6 km up.
+ * How far above the land each flat layer is drawn. Coplanar surfaces need a
+ * little separation or they fight for the same depth. These were three to
+ * four times larger, sized for a camera that once went up to six kilometres.
+ * It stops at 2.6 km now, and the near plane grows with altitude
+ * (core/camera.ts), which leaves a few centimetres enough. And a person on
+ * the street is seen from eye height now (walk/): with the pavement half a
+ * metre up, everybody on it stood in it to the knee, and every kerb was a
+ * step down into a trench in front of the houses.
  */
-export const LAYER_Y = { ground: 0, bank: 0.15, water: 0.3, pavement: 0.5, road: 0.6 } as const;
+export const LAYER_Y = { ground: 0, bank: 0.05, water: 0.09, pavement: 0.14, road: 0.22 } as const;
 
 /**
  * Where the water meets the land. Open water was one flat colour right up to
@@ -227,6 +232,13 @@ function createWater(
   geometry.setAttribute('across', acrossAttribute(Math.min(inner.length, outer.length)));
 
   const material = new MeshPhongNodeMaterial();
+  // The water is a few centimetres above the land it covers (LAYER_Y), and
+  // from the top of the range the far sea is kilometres off, where a depth
+  // step is bigger than that: the land showed through in green specks. A
+  // small bias toward the camera settles it without raising the water.
+  material.polygonOffset = true;
+  material.polygonOffsetFactor = -1;
+  material.polygonOffsetUnits = -4;
   // A tight, faint highlight. Broad and bright, it lit a third of the sea
   // white whenever the camera faced the sun, which read as fog, not water.
   material.shininess = 320;

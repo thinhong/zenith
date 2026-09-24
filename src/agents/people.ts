@@ -9,7 +9,8 @@ import {
   PointsMaterial,
 } from 'three';
 import type { ViewState } from '@/core/camera';
-import { AGENTS, drawRadius } from '@/state/altitude';
+import { AGENTS, drawRadius, WALK } from '@/state/altitude';
+import { LAYER_Y } from '@/world/ground';
 import { buildWalkPath } from '@/agents/paths';
 import {
   advanceAgent,
@@ -359,14 +360,17 @@ export function createPeople(options: PeopleOptions): People {
   }
 
   function drawFigures(view: ViewState): void {
-    const radius = drawRadius(view.altitudeM);
+    // On foot you see down a whole street, so the figures reach further.
+    const radius = view.walking ? WALK.drawRadiusM : drawRadius(view.altitudeM);
     const radiusSquared = radius * radius;
     let slot = 0;
     for (let i = 0; i < pool.count && slot < PEOPLE.maxFigures; i++) {
       const state = pool.state[i] ?? 0;
       // Behind a wall: the depth test would throw the figure away anyway.
       if (state === STATE.inside && isOpen && !isOpen(pool.targetLot[i] ?? -1)) continue;
-      const floorY = state === STATE.inside ? storeyHeightM(pool.storey[i] ?? 0) : 0;
+      // Somebody walking is on a pavement, which stands a little proud of the ground.
+      const floorY =
+        state === STATE.inside ? storeyHeightM(pool.storey[i] ?? 0) : state === STATE.walking ? LAYER_Y.pavement : 0;
       const x = agentX(pool, i);
       const z = agentZ(pool, i);
       const dx = x - view.targetX;

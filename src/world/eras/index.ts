@@ -1,4 +1,5 @@
 import type { ThoughtSet } from '@/thoughts/content';
+import type { OrientedRect } from '@/world/geometry2d';
 import type { InteriorStyle } from '@/world/interior';
 import type { Lot, LotProfile, LotUse } from '@/world/lots';
 import type { MarkingStyle } from '@/world/markings';
@@ -162,6 +163,24 @@ export interface EraLayout {
   structures: Structure[];
   /** How far out this era built, for distance-based decisions. */
   cityRadiusM: number;
+  /**
+   * What somebody on foot cannot walk through besides the buildings: a wall,
+   * a moat, a keep, the foot of a spire (walk/town.ts). None for an era with
+   * nothing of the kind.
+   */
+  barriers?: OrientedRect[];
+  /** Places a day in this era needs by name, and the way to face there (story/cast.ts). */
+  landmarks?: Readonly<Record<string, Landmark>>;
+  /** The wall round the town, for an era that has one: inside it or out. */
+  enclosure?: { shape: 'square' | 'circle'; halfM: number };
+}
+
+export interface Landmark {
+  x: number;
+  z: number;
+  /** Which way somebody standing here faces, as a direction on the ground. */
+  faceX: number;
+  faceZ: number;
 }
 
 export interface Era {

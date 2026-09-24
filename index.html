@@ -13,7 +13,7 @@
       #hud { position: fixed; left: 12px; top: 12px; font-size: 12px; line-height: 1.5; opacity: 0.7; pointer-events: none; white-space: pre; }
       #hud.hidden { display: none; }
       /* Thoughts are DOM, so the text stays one readable size at any altitude. */
-      #thoughts { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      #thoughts { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
       .thought {
         position: absolute;
         left: 0; top: 0;
@@ -125,6 +125,205 @@
         cursor: pointer;
       }
       #help:hover { color: #dfe4ea; }
+      #walk {
+        height: 34px; padding: 0 13px;
+        border: 0; border-radius: 17px;
+        background: rgba(10, 14, 20, 0.55);
+        color: #cfd6de;
+        font: inherit; font-size: 12px;
+        cursor: pointer;
+      }
+      #walk:hover { color: #f0efe6; background: rgba(10, 14, 20, 0.7); }
+      #bar.gone { display: none; }
+
+      /*
+       * A day on foot (story/). As quiet as the rest of it: words over whoever
+       * is speaking, your own along the foot of the screen, two replies when
+       * there is a choice, and a way back up.
+       */
+      #story { position: fixed; inset: 0; z-index: 4; pointer-events: none; font-size: 15px; }
+      #story.hidden { display: none; }
+      #story .veil { position: absolute; inset: 0; background: #07090c; opacity: 0; }
+      #story .say {
+        position: absolute; left: 0; top: 0;
+        max-width: min(320px, 72vw);
+        padding: 7px 14px 8px;
+        border-radius: 14px;
+        background: rgba(250, 245, 232, 0.94);
+        color: #2b2721;
+        line-height: 1.36;
+        text-align: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        will-change: transform;
+      }
+      #story .say.on { opacity: 1; }
+      #story .say::after {
+        content: '';
+        position: absolute; left: 50%; top: 100%;
+        margin-left: -6px;
+        border: 6px solid transparent;
+        border-top-color: rgba(250, 245, 232, 0.94);
+      }
+      #story .say.low { left: 50%; top: auto; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
+      #story .say.low::after { display: none; }
+      #story .say .who { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.5; margin-bottom: 1px; }
+      #story .say .who:empty { display: none; }
+      #story .foot {
+        position: absolute; left: 0; right: 0; bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        padding: 0 16px;
+      }
+      #story .aim {
+        max-width: 560px; text-align: center;
+        font-style: italic; font-size: 14px;
+        color: rgba(244, 241, 232, 0.86);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+        opacity: 0; transition: opacity 0.9s ease;
+      }
+      #story .aim.on { opacity: 1; }
+      #story .line {
+        display: none;
+        max-width: 600px; text-align: center;
+        padding: 8px 15px;
+        border-radius: 12px;
+        background: rgba(10, 14, 20, 0.62);
+        color: #eef0f2;
+        line-height: 1.42;
+      }
+      #story .line.on { display: block; }
+      #story .line[data-kind='think'] {
+        background: transparent;
+        font-style: italic; font-size: 16px;
+        color: #f6f3ea;
+        text-shadow: 0 1px 5px rgba(0, 0, 0, 0.8);
+      }
+      #story .line .who { display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+      #story .line .who:empty { display: none; }
+      #story .choices { display: none; flex-wrap: wrap; justify-content: center; gap: 10px; }
+      #story .choices.on { display: flex; }
+      #story .reply {
+        pointer-events: auto;
+        max-width: 330px;
+        padding: 10px 16px;
+        border: 0; border-radius: 12px;
+        background: rgba(250, 245, 232, 0.95);
+        color: #2b2721;
+        font: inherit; font-size: 15px;
+        cursor: pointer;
+      }
+      #story .reply:hover { background: #fffdf6; }
+      #story .reply b { display: inline-block; margin-right: 8px; opacity: 0.42; }
+      #story .prompt {
+        display: none;
+        pointer-events: auto;
+        padding: 8px 15px;
+        border: 0; border-radius: 12px;
+        background: rgba(10, 14, 20, 0.62);
+        color: #eef0f2;
+        font: inherit; font-size: 14px;
+        cursor: pointer;
+      }
+      #story .prompt.on { display: inline-block; }
+      #story .prompt b { display: inline-block; margin-right: 9px; padding: 0 6px; border-radius: 5px; background: rgba(255, 255, 255, 0.18); }
+      #story .next {
+        display: none;
+        position: absolute; right: 18px; bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+        width: 54px; height: 54px;
+        border: 0; border-radius: 27px;
+        background: rgba(250, 245, 232, 0.9);
+        color: #2b2721;
+        font-size: 30px; line-height: 1;
+        pointer-events: auto;
+      }
+      #story .next.on { display: block; }
+      #story .rise {
+        position: absolute; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px));
+        width: 40px; height: 40px;
+        border: 0; border-radius: 20px;
+        background: rgba(10, 14, 20, 0.5);
+        color: #cfd6de;
+        font-size: 18px;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      #story .rise:hover { color: #f0efe6; }
+      #story .hint {
+        position: absolute; left: 50%; top: calc(18px + env(safe-area-inset-top, 0px));
+        transform: translateX(-50%);
+        max-width: calc(100vw - 110px);
+        padding: 7px 13px;
+        border-radius: 11px;
+        background: rgba(10, 14, 20, 0.55);
+        color: #d7dde5;
+        font-size: 13px; text-align: center;
+        opacity: 0; transition: opacity 0.6s ease;
+      }
+      #story .hint.on { opacity: 1; }
+      #story .beacon {
+        position: absolute; left: 0; top: 0;
+        width: 12px; height: 12px;
+        margin: -6px 0 0 -6px;
+        border-radius: 6px;
+        background: #ffe2a0;
+        box-shadow: 0 0 12px 5px rgba(255, 226, 160, 0.5);
+        opacity: 0; transition: opacity 0.6s ease;
+      }
+      #story .beacon.on { opacity: 0.9; }
+      #story .closing {
+        position: absolute; left: 50%; top: 40%;
+        transform: translate(-50%, -50%);
+        width: min(600px, 86vw);
+        text-align: center;
+        font-size: 21px; font-style: italic; line-height: 1.4;
+        color: #f8f4ea;
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.75);
+        opacity: 0;
+      }
+      #story .menu {
+        position: absolute; left: 50%; top: 50%;
+        transform: translate(-50%, -50%);
+        display: flex; flex-direction: column; gap: 10px;
+        min-width: 270px;
+        padding: 18px 20px;
+        border-radius: 16px;
+        background: rgba(10, 14, 20, 0.84);
+        pointer-events: auto;
+      }
+      #story .menu.hidden { display: none; }
+      #story .menu .wide {
+        padding: 11px 14px;
+        border: 0; border-radius: 11px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #eef0f2;
+        font: inherit; font-size: 15px;
+        cursor: pointer;
+      }
+      #story .menu .wide:hover { background: rgba(255, 255, 255, 0.18); }
+      #story .menu .keys { margin-top: 6px; font-size: 12px; line-height: 1.75; color: #b9c1ca; }
+      .stick {
+        position: fixed;
+        z-index: 4;
+        width: 116px; height: 116px;
+        margin: -58px 0 0 -58px;
+        border-radius: 58px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        pointer-events: none;
+        display: none;
+      }
+      .stick.on { display: block; }
+      .stick .knob {
+        position: absolute; left: 50%; top: 50%;
+        width: 50px; height: 50px;
+        border-radius: 25px;
+        background: rgba(255, 255, 255, 0.34);
+      }
+      @media (max-width: 640px) {
+        #story { font-size: 14px; }
+        #story .closing { font-size: 18px; }
+        #story .reply { font-size: 14px; }
+      }
       #helpsheet {
         position: fixed; right: 12px; bottom: 62px;
         padding: 10px 13px;

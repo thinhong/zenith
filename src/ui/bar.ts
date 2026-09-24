@@ -24,6 +24,8 @@ export interface BarOptions {
   paused: () => boolean;
   onHour: (hour: number) => void;
   onPause: (paused: boolean) => void;
+  /** Go down into this era and live one ordinary day in it, on foot. */
+  onWalk: () => void;
 }
 
 export interface Bar {
@@ -31,6 +33,8 @@ export interface Bar {
   update: (dtS: number) => void;
   /** Redraws which stop is lit and which toggles are on. */
   refresh: () => void;
+  /** Put away entirely while a day is lived on foot, and back after. */
+  setGone: (gone: boolean) => void;
 }
 
 /** "07:30" from 7.5. The bar shows the hour; the HUD has the same in full. */
@@ -115,6 +119,16 @@ export function createBar(options: BarOptions): Bar {
     wake();
   });
 
+  const walk = document.createElement('button');
+  walk.id = 'walk';
+  walk.type = 'button';
+  walk.textContent = 'A day';
+  walk.title = 'Live one ordinary day here, on foot (L)';
+  walk.addEventListener('click', () => {
+    options.onWalk();
+  });
+  root.appendChild(walk);
+
   const help = document.createElement('button');
   help.id = 'help';
   help.type = 'button';
@@ -132,6 +146,7 @@ export function createBar(options: BarOptions): Bar {
     '<b>Slider</b> sets the hour',
     '<b>Space</b> holds the day still',
     '<b>Click</b> a building to open it, again to shut it',
+    '<b>L</b> lives one ordinary day here, on foot',
     '<b>Esc</b> closes all of them',
     '<b>H</b> shows the numbers',
   ]
@@ -172,6 +187,10 @@ export function createBar(options: BarOptions): Bar {
 
   return {
     refresh,
+    setGone: (gone) => {
+      root.classList.toggle('gone', gone);
+      if (gone) sheet.classList.add('hidden');
+    },
     update: (dtS) => {
       const hour = options.hour();
       readout.textContent = clockLabel(hour);

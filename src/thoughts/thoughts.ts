@@ -24,6 +24,11 @@ import { selectThoughts, steadyPick, type ThoughtCandidate, type ThoughtSlot } f
 const THOUGHTS = {
   max: 6,
   /**
+   * On foot (story/), where the day's own words are on the glass too, and
+   * six pills round one pair of eyes is a crowd shouting.
+   */
+  maxOnFoot: 3,
+  /**
    * How far from the camera a person may be and still be heard, as a multiple
    * of the altitude, and never less than `radiusMinM`. It scales because the
    * higher the camera the more ground is in shot.
@@ -83,6 +88,13 @@ export interface Thoughts {
   stats: ThoughtStats;
   /** Swaps in another era's worries. Anything showing is dropped. */
   setThoughts: (next: ThoughtSet) => void;
+  /** Nobody thinks out loud while somebody is talking to you. */
+  setHush: (quiet: boolean) => void;
+  /**
+   * On foot, who can be seen from where you stand: nobody gets a pill from
+   * behind a building. Null for the view from above, which sees everything.
+   */
+  setSight: (sees: ((x: number, z: number) => boolean) | null) => void;
 }
 
 export interface ThoughtsOptions {
@@ -143,6 +155,9 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
     stats.shown = 0;
   }
 
+  let hushed = false;
+  let sees: ((x: number, z: number) => boolean) | null = null;
+
   return {
     stats,
     setThoughts: (next) => {
@@ -150,10 +165,16 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
       slots = [];
       hideAll();
     },
+    setHush: (quiet) => {
+      hushed = quiet;
+    },
+    setSight: (next) => {
+      sees = next;
+    },
     update: (dtS, view, hourOfDay) => {
       now = timeOfDay(hourOfDay);
       elapsedS += dtS;
-      const strength = detailFactor(DETAIL.thoughts, view.altitudeM);
+      const strength = hushed ? 0 : detailFactor(DETAIL.thoughts, view.altitudeM);
       if (strength <= 0.002) {
         if (slots.length > 0) slots = [];
         hideAll();
@@ -195,6 +216,7 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
         if (point.z > 1 || point.x < -1.1 || point.x > 1.1 || point.y < -1.1 || point.y > 1.1) {
           continue;
         }
+        if (sees && !sees(person.x, person.z)) continue;
         const offCentre = Math.hypot(point.x, point.y);
         const dx = person.x - view.eyeX;
         const dy = person.headM - view.eyeY;
@@ -211,7 +233,7 @@ export function createThoughts(options: ThoughtsOptions): Thoughts {
       }
 
       slots = selectThoughts(slots, scored, elapsedS, {
-        max: THOUGHTS.max,
+        max: sees ? THOUGHTS.maxOnFoot : THOUGHTS.max,
         holdS: THOUGHTS.holdS,
         pick,
       });

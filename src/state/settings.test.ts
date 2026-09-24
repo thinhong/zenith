@@ -13,7 +13,16 @@ describe('parseSettings', () => {
       startAltitudeM: null,
       startTarget: null,
       startEra: null,
+      startDay: false,
+      startScene: null,
     });
+  });
+
+  it('can open straight into a day on foot, at a given scene', () => {
+    const s = parseSettings('?day=1&scene=3', false);
+    expect(s.startDay).toBe(true);
+    expect(s.startScene).toBe(3);
+    expect(parseSettings('?day=0', false).startDay).toBe(false);
   });
 
   it('reads the seed so a city can be shared', () => {

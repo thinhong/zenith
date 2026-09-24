@@ -196,3 +196,30 @@ export const AGENTS = {
   drawMinM: 90,
   drawPerAltitude: 3.2,
 } as const;
+
+/**
+ * On foot (walk/, story/). The lowest altitude there is: a person's eyes.
+ * Everything else in this file still applies at this height, which is the
+ * point of keeping it here: the town at 1.6 m is the same town, with every
+ * fade at its fullest and nothing left for the view from above to add.
+ */
+export const WALK = {
+  /** Eyes above whatever is underfoot. */
+  eyeM: 1.62,
+  /** The disc a person takes up, for bumping into things (walk/body.ts). */
+  radiusM: 0.35,
+  /** A brisk walk, and a hurry. Faster than life: the town is small but a day is short. */
+  speedMS: 2.9,
+  hurryMS: 5.8,
+  /** The camera's near plane on foot. Under the radius, so a wall touched is not cut open. */
+  nearM: 0.25,
+  /** Where "the point being looked at" is on foot, for systems that centre on one. */
+  lookAheadM: 45,
+  /** Figures are drawn this far from that point, which on foot is most of a street. */
+  drawRadiusM: 170,
+  /** Water this far in from the bank cannot be stood in. */
+  shoreM: 1.2,
+  /** Close enough to talk to somebody, and close enough to have arrived. */
+  talkM: 4.2,
+  arriveM: 7,
+} as const;
