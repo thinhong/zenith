@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0b0f14" />
-    <title>Zenith</title>
+    <title>Above · Zenith</title>
     <link rel="icon" href="data:," />
     <style>
       html, body { margin: 0; height: 100%; background: #0b0f14; color: #d7dde5; font-family: system-ui, sans-serif; overflow: hidden; }
@@ -333,6 +333,15 @@
         font-size: 12px; line-height: 1.7;
       }
       #helpsheet.hidden { display: none; }
+      /* The way back to the other apps of the collection, last in the sheet. */
+      #helpsheet .home {
+        display: block;
+        margin-top: 6px; padding-top: 6px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        color: #d7dde5;
+        text-decoration: none;
+      }
+      #helpsheet .home:hover { color: #f0efe6; }
 
       /*
        * Touch targets. Keyed on the pointer, not on the width: a phone held

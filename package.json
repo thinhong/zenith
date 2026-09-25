@@ -3,23 +3,24 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A contemplative view-from-above city world. No goals, no score.",
+  "description": "Zenith: a small collection of quiet web apps for looking at life from outside it. No goals, no score.",
+  "workspaces": [
+    "home",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "smoke": "node scripts/smoke.mjs"
-  },
-  "dependencies": {
-    "three": "^0.186.0"
+    "dev:home": "npm run dev -w @zenith/home",
+    "dev:above": "npm run dev -w @zenith/above",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/preview.mjs",
+    "smoke": "npm run smoke --workspaces --if-present"
   },
   "devDependencies": {
-    "@types/three": "^0.186.0",
+    "playwright": "^1.63.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
-    "vitest": "^3.2.4",
-    "playwright": "^1.63.0"
+    "vitest": "^3.2.4"
   }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "@zenith/home",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The chooser at the root of the Zenith site: one card for each finished app.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

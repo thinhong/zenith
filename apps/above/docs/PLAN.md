@@ -1,14 +1,14 @@
-# Zenith: implementation plan
+# Above: implementation plan
 
-Status: v17, 25 September 2026. M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. A day on foot (section 2, step 9) added outside the milestones, by the owner's call. 2300 rebuilt as a garden town round a great hall on a pond, and the trees of every era drawn in full near the eye (section 5). M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Zenith is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
+Status: v18, 25 September 2026. Zenith became a collection of small apps, and this is the plan for the first of them, **Above** (the view from above). It moved to `apps/above/` in the repo and to `/zenith/above/` on the site, and every path in this file is relative to `apps/above/` (section 3). M0 to M3 closed. M5 closed as four eras, with Wyrmrest (M5b) in place of the two that were never built. A day on foot (section 2, step 9) added outside the milestones, by the owner's call. 2300 rebuilt as a garden town round a great hall on a pond, and the trees of every era drawn in full near the eye (section 5). M4, M6 and M7 open. Owner: Thinh. This file is the source of truth for what Above is and how it gets built. Coding agents: read this whole file and `AGENTS.md` before writing code. If you change a decision here, update this file in the same change.
 
-## 1. What Zenith is
+## 1. What Above is
 
-Zenith is a small browser world that you look down on from a high place. You scroll to zoom from satellite height down to the street. From high up you see only patterns: rivers of traffic, lights coming on at dusk. As you go lower, sound rises, and you start to see tiny people walking to work, driving, sitting at desks. At street level, short thoughts appear above their heads ("must finish the report", "why hasn't she replied"). Zoom out again and the words shrink to nothing.
+Above is a small browser world that you look down on from a high place. You scroll to zoom from satellite height down to the street. From high up you see only patterns: rivers of traffic, lights coming on at dusk. As you go lower, sound rises, and you start to see tiny people walking to work, driving, sitting at desks. At street level, short thoughts appear above their heads ("must finish the report", "why hasn't she replied"). Zoom out again and the words shrink to nothing.
 
 The same piece of land can be viewed in different eras (rice fields, an old citadel, a colonial town, a modern city, a green ruin) to carry the idea of reincarnation: the clothes change, the worries do not. A small light (a "soul") can be followed from one life to the next.
 
-The purpose is to remind the viewer to stay calm: to watch the world like an outsider, not an actor. Zenith is not a game with goals. There is nothing to win, collect, or finish. The one exception is a day on foot (section 2, step 9): it tells a story and asks for a reply now and then, and there is still nothing to win.
+The purpose is to remind the viewer to stay calm: to watch the world like an outsider, not an actor. Above is not a game with goals. There is nothing to win, collect, or finish. The one exception is a day on foot (section 2, step 9): it tells a story and asks for a reply now and then, and there is still nothing to win.
 
 ### 1.1 Feeling we want (design principles)
 
@@ -50,7 +50,7 @@ The purpose is to remind the viewer to stay calm: to watch the world like an out
 | Language | TypeScript, strict mode, no `any`. |
 | Bundler / dev server | Vite 7. Path alias `@/` = `src/`. |
 | Tests | Vitest for pure logic (no three.js objects in tests). Playwright smoke test for rendering (`npm run smoke`). |
-| Hosting | GitHub Pages, deployed by `.github/workflows/deploy.yml` on every push to `main`. Site URL: `https://<user>.github.io/zenith/`. The base path is set from the repo name. |
+| Hosting | GitHub Pages, deployed with the rest of the collection by `.github/workflows/deploy.yml` at the repo root on every push to `main`. Site URL: `https://<user>.github.io/zenith/above/`; the chooser is at `https://<user>.github.io/zenith/`. The base path is the repo name plus this app's folder name (`vite.config.ts`). |
 | Audio | Web Audio API. Procedural noise for wind; small looped OGG/MP3 files (each under 200 kB) for murmur and era accents. |
 | UI | Plain DOM + CSS in `index.html` and `src/ui/`. No framework. |
 | Units | 1 world unit = 1 metre. Y is up. Ground is the plane y = 0. |
@@ -694,7 +694,7 @@ Acceptance: all budgets in 3.1 met on the reference phone; a 5-minute unattended
 - Manual checklist per milestone (desktop and phone): zoom from 6000 m to 12 m and back; check each band boundary for popping; night and day; era switch; a soul chain; mute; bar auto-hide; rotate the phone.
 - Measuring a level-of-detail pop: hold the camera **exactly** still and change only the detail. Two renders 10 m apart in altitude differ by 76% of pixels on their own, because a city is mostly thin vertical edges and they all move. That number was twice mistaken for a pop; a control pair with the detail unchanged gives the same number. Freeze the clock with `?pause=1` too, or a drifting sun moves every shadow between the two shots.
 - Performance HUD: extend `ui/hud.ts` to show draw calls (`renderer.info.render.calls`), triangles, agent update ms, and current era. Note that three resets those counters inside its own animation loop, which runs before ours, so they are read after `render()` and `renderer.info.autoReset` is off.
-- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era; `?day=1` starts a day on foot at once, without the flight down, and `?scene=3` starts it at that part of the day, a few steps from the place. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience.
+- URL params, all optional: `?seed=123` picks the city (shareable); `?hour=21` starts the day clock there; `?pause=1` freezes it; `?alt=5200` opens at that altitude; `?at=-33,54` looks at that point on the ground instead of the centre; `?era=citadel` opens in that era; `?day=1` starts a day on foot at once, without the flight down, and `?scene=3` starts it at that part of the day, a few steps from the place. The last four exist so a reviewer or a headless render can set up a particular moment; checking anything at street level is impractical without `?at=`. The last two exist only so a reviewer or a headless render can capture a fixed moment; they are not part of the experience. Links made before Zenith became a collection point at the site root, so the chooser sends any link that carries one of these parameters on to Above with the same query (`home/src/forward.ts`, at the repo root).
 
 ## 8.1 What a full read of the code turned up (20 Sep 2026)
 
@@ -792,6 +792,7 @@ An audit of every module, after the owner asked for one. The findings worth reco
 | 2026-09-25 | The heart of 2300 is a great hall on a pond, not a ring | owner asked for something "massive but elegant and beautiful that blends well with the style". The white ring was massive and read from the air as a stadium, the one bright hard-edged thing in a town of dark roofs, timber and moss |
 | 2026-09-25 | Still water mirrors the far bank as well as the sky | mirroring the sky alone made a still lake a pale floor; from its bank most of a lake shows the trees across it upside down |
 | 2026-09-25 | Trees are drawn in full near the eye and plainly past it, their crowns leaf cards round dark cores | owner asked for realistic trees. The split keeps the view from above at about its old cost; a dither shares the band between the two |
+| 2026-09-25 | Zenith is a collection of apps, and this one is Above, in `apps/above/` at `/zenith/above/` | owner's call: the view from above is one way of looking among several, and the next app watches lives from beginning to end. Each app is its own npm workspace with its own plan, tests and budgets. The chooser at `/zenith/` lists only finished apps, and sends old links that carry Above's URL settings on to it |
 
 ## 10. Open questions (decide before the milestone that needs them)
 

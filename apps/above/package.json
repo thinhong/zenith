@@ -1,0 +1,21 @@
+{
+  "name": "@zenith/above",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Above: a small town seen from a high place, in four ages. Part of Zenith. No goals, no score.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0"
+  }
+}

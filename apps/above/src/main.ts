@@ -200,5 +200,5 @@ async function main(): Promise<void> {
 main().catch((err) => {
   console.error(err);
   const el = document.getElementById('app');
-  if (el) el.textContent = 'Zenith could not start. Your browser may not support WebGL2/WebGPU.';
+  if (el) el.textContent = 'Above could not start. Your browser may not support WebGL2/WebGPU.';
 });
