@@ -19,7 +19,7 @@ Zenith is a collection of small, quiet web apps in one repo, deployed together a
 ## Rules for the whole collection
 
 1. **Static only.** No backend, accounts, analytics, or network calls at run time except the site's own files. GitHub Pages is the only host.
-2. **One set of tools.** TypeScript (strict), Vite, Vitest and Playwright are declared once in the root `package.json`, so every app uses the same versions. An app adds its own runtime dependencies (Above uses three) in its own `package.json`, with the reason written in the PR.
+2. **One set of tools.** TypeScript (strict), Vite, Vitest and Playwright are declared once in the root `package.json`, so every app uses the same versions. An app adds its own runtime dependencies (Above uses three; Lives uses three and @pixiv/three-vrm) in its own `package.json`, with the reason written in the PR.
 3. **Apps do not import from each other.** If two apps need the same code, move it into `packages/<name>/` as its own workspace first. Nothing is shared yet.
 4. **Never hard-code the base path.** An app is served at `ZENITH_BASE` plus its folder name. Use `import.meta.env.BASE_URL` in code; `vite.config.ts` works the base out.
 5. **The chooser lists finished apps only.** An unfinished app is built and deployed at its own address, but it gets no card in `home/apps.json` until it works on a phone and on a desktop.
@@ -31,6 +31,7 @@ Zenith is a collection of small, quiet web apps in one repo, deployed together a
 ```
 npm install          # once; installs every workspace
 npm run dev:above    # one app in dev: http://localhost:5173/zenith/above/
+npm run dev:lives    # http://localhost:5174/zenith/lives/
 npm run dev:home     # the chooser in dev: http://localhost:5172/zenith/ (its links need a build)
 npm run typecheck    # every workspace
 npm test             # every workspace

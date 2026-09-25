@@ -1,0 +1,22 @@
+{
+  "name": "@zenith/lives",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lives: watch one person's life from beginning to end, like a short film. A first test. Part of Zenith.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0"
+  }
+}

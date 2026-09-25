@@ -11,6 +11,7 @@
   "scripts": {
     "dev:home": "npm run dev -w @zenith/home",
     "dev:above": "npm run dev -w @zenith/above",
+    "dev:lives": "npm run dev -w @zenith/lives",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "node scripts/build.mjs",

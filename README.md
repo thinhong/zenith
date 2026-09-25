@@ -13,6 +13,7 @@ The chooser at `https://<user>.github.io/zenith/` shows every finished app. Ever
 ```
 npm install            # once, at the root: installs every app
 npm run dev:above      # Above in dev: http://localhost:5173/zenith/above/
+npm run dev:lives      # Lives in dev: http://localhost:5174/zenith/lives/
 npm run dev:home       # the chooser in dev: http://localhost:5172/zenith/
 npm run build          # the chooser and every app, into dist/
 npm run preview        # dist/ as the site serves it: http://localhost:4173/zenith/
@@ -31,6 +32,8 @@ home/              the chooser, served at the site root (/zenith/)
 apps/
   above/           the view from above, served at /zenith/above/
                    with its own plan (docs/PLAN.md) and rules (AGENTS.md)
+  lives/           a life watched from beginning to end, served at /zenith/lives/
+                   a first test, not on the chooser yet
 scripts/
   build.mjs        builds everything and lays it out in dist/
   preview.mjs      serves dist/ locally
