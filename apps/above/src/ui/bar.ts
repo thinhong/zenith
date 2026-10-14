@@ -152,6 +152,13 @@ export function createBar(options: BarOptions): Bar {
   ]
     .map((line) => `<div>${line}</div>`)
     .join('');
+  // Above is one app of the Zenith collection, served one folder below the
+  // chooser. The link lives here, behind the "?", so the view stays quiet.
+  const home = document.createElement('a');
+  home.className = 'home';
+  home.href = `${import.meta.env.BASE_URL}../`;
+  home.textContent = '← Zenith';
+  sheet.appendChild(home);
   root.appendChild(sheet);
   help.addEventListener('click', () => {
     sheet.classList.toggle('hidden');

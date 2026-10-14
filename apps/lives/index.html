@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <title>Lives · Zenith</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; color: #d7dde5; font-family: system-ui, sans-serif; overflow: hidden; }
+      /* The film is always a 2:1 frame, centred, with black around it. */
+      #film { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+      #film canvas { display: block; }
+      #hud { position: fixed; left: 12px; bottom: 10px; font-size: 12px; opacity: 0.7; white-space: pre; pointer-events: none; }
+      #hud.hidden { display: none; }
+      /* The way back to the rest of Zenith shows only while the pointer moves. */
+      #home {
+        position: fixed; left: 14px; top: calc(12px + env(safe-area-inset-top, 0px));
+        padding: 6px 10px; border-radius: 10px;
+        background: rgba(10, 14, 20, 0.5); color: #cfd6de;
+        font-size: 13px; text-decoration: none;
+        opacity: 0; transition: opacity 0.8s ease;
+      }
+      #home.on { opacity: 1; }
+      #home:hover { color: #f0efe6; }
+    </style>
+  </head>
+  <body>
+    <div id="film"></div>
+    <a id="home" href="../">← Zenith</a>
+    <div id="hud" class="hidden"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

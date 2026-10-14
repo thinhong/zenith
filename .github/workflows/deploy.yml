@@ -24,9 +24,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Builds the chooser and every app into dist/ (scripts/build.mjs).
       - run: npm run build
         env:
-          # Must match the repository name: https://<user>.github.io/<repo>/
+          # The site's base must match the repository name:
+          # https://<user>.github.io/<repo>/. The chooser is served there and
+          # each app in a folder under it, e.g. <repo>/above/.
           ZENITH_BASE: /${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         with:

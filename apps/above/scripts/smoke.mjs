@@ -5,9 +5,14 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PORT = 4173;
-const BASE = process.env.ZENITH_BASE ?? '/zenith/';
+// The app is served under the collection's base, in a folder named after its
+// own (vite.config.ts works it out the same way).
+const SLUG = basename(fileURLToPath(new URL('..', import.meta.url)));
+const BASE = `${process.env.ZENITH_BASE ?? '/zenith/'}${SLUG}/`;
 const preview = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'ignore' });
 await sleep(2500);
 
